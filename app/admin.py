@@ -1,154 +1,174 @@
 # -*- coding: utf-8 -*-
-"""Admin endpoints: user CRUD, approval, pending count."""
+"""Admin endpoints: user CRUD, approval, pending count, audit log (RBAC-gated).
 
-from fastapi import APIRouter, Header, HTTPException
+The user business logic has moved to :mod:`app.services.user_service`; the
+handlers here do permission guarding + request/response shaping and delegate
+the actual work to the service.
+"""
 
-from app.auth import require_admin
-from app.database import get_db
-from app.models import AdminUserRequest
-from app.utils import _hash_pw
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.auth import get_current_user, require_admin, require_permission
+from app.cleanup import run_cleanup
+from app.database import AuditLog, User, get_db, orm_to_dict
+from app.models import (
+    AdminBatchRequest,
+    AdminUserRequest,
+    AuditListResponse,
+    PendingResponse,
+    UserListResponse,
+)
+from app.services import user_service
+from app.utils import _audit_log, _client_ip
+
+
+class CleanupRequest(BaseModel):
+    """Request body for the orphan-cleanup endpoint (P1-6)."""
+    dry_run: bool = True
+    target: str = "both"  # "disk" | "db" | "both"
+
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 
-@router.get("/users")
-async def admin_list_users(authorization: str = Header(default="")):
-    """List all users (admin only). Returns nickname and password hash."""
-    require_admin(authorization)
-    db = get_db()
+@router.get("/users", response_model=UserListResponse)
+async def admin_list_users(
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_permission("user:read")),
+):
+    """List all users (requires user:read)."""
+    users = db.execute(select(User).order_by(User.id)).scalars().all()
+    return {"users": [user_service.user_to_dict(u) for u in users]}
+
+
+@router.get("/pending", response_model=PendingResponse)
+async def admin_pending_count(
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_permission("user:read")),
+):
+    """Get pending user count and list (requires user:read)."""
     rows = db.execute(
-        "SELECT id, username, nickname, password, role, status, created_at FROM users ORDER BY id"
-    ).fetchall()
-    db.close()
-    return {"users": [dict(r) for r in rows]}
+        select(User.id, User.username).where(User.status == "pending").order_by(User.id)
+    ).mappings().all()
+    return {"count": len(rows), "users": [dict(r) for r in rows]}
 
 
 @router.put("/users/{user_id}/approve")
-async def admin_approve_user(user_id: int, authorization: str = Header(default="")):
-    """Approve a pending user (admin only)."""
-    require_admin(authorization)
-    db = get_db()
-    db.execute("UPDATE users SET status = 'active' WHERE id = ? AND status = 'pending'", (user_id,))
-    if db.total_changes == 0:
-        db.close()
-        raise HTTPException(404, "User not found or not pending")
-    db.commit()
-    db.close()
-    return {"ok": True, "message": "User approved"}
+async def admin_approve_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_permission("user:approve")),
+    request: Request = None,
+):
+    """Approve a pending user (requires user:approve)."""
+    return user_service.approve_user(db, user_id, _client_ip(request))
+
+
+@router.put("/users/{user_id}/reject")
+async def admin_reject_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_permission("user:approve")),
+    request: Request = None,
+):
+    """Reject a pending user (requires user:approve). Sets status to 'rejected'."""
+    return user_service.reject_user(db, user_id, _client_ip(request))
 
 
 @router.delete("/users/{user_id}")
-async def admin_delete_user(user_id: int, authorization: str = Header(default="")):
-    """Delete a user (admin only, cannot delete self)."""
-    admin = require_admin(authorization)
-    db = get_db()
-    user = db.execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
-    if not user:
-        db.close()
-        raise HTTPException(404, "User not found")
-    if str(user["id"]) == str(admin["id"]):
-        db.close()
-        raise HTTPException(400, "Cannot delete your own account")
-    db.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    db.commit()
-    db.close()
-    return {"ok": True, "message": f"User '{user['username']}' deleted"}
+async def admin_delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(require_permission("user:manage")),
+    request: Request = None,
+):
+    """Delete a user (requires user:manage, cannot delete self or default admin)."""
+    return user_service.delete_user(db, user_id, admin, _client_ip(request))
 
 
 @router.post("/users")
-async def admin_create_user(body: AdminUserRequest, authorization: str = Header(default="")):
-    """Create a new user (admin only). Can set all fields."""
-    require_admin(authorization)
-    if not body.username or not body.password:
-        raise HTTPException(400, "Username and password required")
-    if len(body.username) < 2:
-        raise HTTPException(400, "Username too short")
-    if len(body.password) < 3:
-        raise HTTPException(400, "Password too short")
-
-    db = get_db()
-    existing = db.execute("SELECT id FROM users WHERE username = ?", (body.username,)).fetchone()
-    if existing:
-        db.close()
-        raise HTTPException(409, "Username already exists")
-
-    pw_hash = _hash_pw(body.password)
-    nickname = (body.nickname or "").strip() or body.username
-    role = body.role if body.role in ("admin", "user") else "user"
-    status = body.status if body.status in ("active", "pending") else "active"
-    db.execute(
-        "INSERT INTO users (username, password, nickname, role, status) VALUES (?,?,?,?,?)",
-        (body.username, pw_hash, nickname, role, status),
-    )
-    db.commit()
-    db.close()
-    return {"ok": True, "message": f"User '{body.username}' created"}
+async def admin_create_user(
+    body: AdminUserRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_permission("user:manage")),
+    request: Request = None,
+):
+    """Create a new user (requires user:manage). Can set all fields."""
+    return user_service.create_user(db, body, _client_ip(request))
 
 
 @router.put("/users/{user_id}")
-async def admin_update_user(user_id: int, body: AdminUserRequest, authorization: str = Header(default="")):
-    """Modify user info (admin only). All fields optional except username."""
-    require_admin(authorization)
-    db = get_db()
-    user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+async def admin_update_user(
+    user_id: int,
+    body: AdminUserRequest,
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_permission("user:manage")),
+    request: Request = None,
+):
+    """Modify user info (requires user:manage). All fields optional."""
+    return user_service.update_user(db, user_id, body, _client_ip(request))
+
+
+@router.post("/users/batch")
+async def admin_batch_users(
+    body: AdminBatchRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    request: Request = None,
+):
+    """Batch user operations: approve / reject / delete.
+
+    Permission gate is action-dependent:
+      * approve / reject -> requires ``user:approve``
+      * delete           -> requires ``user:manage`` (cannot delete self)
+    Deleting a user also invalidates every one of their sessions.
+    """
     if not user:
-        db.close()
-        raise HTTPException(404, "User not found")
-
-    updates = []
-    params = []
-
-    if body.username and body.username != user["username"]:
-        if len(body.username) < 2:
-            db.close()
-            raise HTTPException(400, "Username too short")
-        conflict = db.execute(
-            "SELECT id FROM users WHERE username = ? AND id != ?", (body.username, user_id)
-        ).fetchone()
-        if conflict:
-            db.close()
-            raise HTTPException(409, "Username already exists")
-        updates.append("username = ?")
-        params.append(body.username)
-
-    if body.password:
-        if len(body.password) < 3:
-            db.close()
-            raise HTTPException(400, "Password too short")
-        pw_hash = _hash_pw(body.password)
-        updates.append("password = ?")
-        params.append(pw_hash)
-
-    if body.nickname is not None and body.nickname.strip():
-        updates.append("nickname = ?")
-        params.append(body.nickname.strip())
-
-    if body.role and body.role in ("admin", "user"):
-        updates.append("role = ?")
-        params.append(body.role)
-
-    if body.status and body.status in ("active", "pending"):
-        updates.append("status = ?")
-        params.append(body.status)
-
-    if not updates:
-        db.close()
-        return {"ok": True, "message": "No changes"}
-
-    params.append(user_id)
-    db.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
-    db.commit()
-    db.close()
-    return {"ok": True, "message": "User updated"}
+        raise HTTPException(401, "Authentication required")
+    return user_service.batch_user_action(db, body, user, _client_ip(request))
 
 
-@router.get("/pending")
-async def admin_pending_count(authorization: str = Header(default="")):
-    """Get pending user count and list (admin only, lightweight)."""
-    require_admin(authorization)
-    db = get_db()
+@router.get("/audit", response_model=AuditListResponse)
+async def admin_audit_log(
+    db: Session = Depends(get_db),
+    _: dict = Depends(require_permission("audit:view")),
+    limit: int = 100,
+):
+    """Return recent audit-log entries (requires audit:view)."""
     rows = db.execute(
-        "SELECT id, username FROM users WHERE status = 'pending' ORDER BY id"
-    ).fetchall()
-    db.close()
-    return {"count": len(rows), "users": [dict(r) for r in rows]}
+        select(AuditLog).order_by(AuditLog.id.desc()).limit(limit)
+    ).scalars().all()
+    return {"logs": [orm_to_dict(r) for r in rows]}
+
+
+# ---------------------------------------------------------------------------
+# P1-6 — orphan cleanup (disk files with no DB row, and DB rows with no file)
+# ---------------------------------------------------------------------------
+@router.post("/cleanup")
+async def admin_cleanup(
+    body: CleanupRequest,
+    db: Session = Depends(get_db),
+    admin_user: dict = Depends(require_admin),
+    request: Request = None,
+):
+    """Scan for (and optionally remove) orphaned files / records.
+
+    Requires admin. ``dry_run=true`` (default) only reports what *would* be
+    deleted; set ``dry_run=false`` to actually remove. ``target`` selects
+    ``"disk"`` / ``"db"`` / ``"both"``. Every real cleanup is audit-logged.
+    """
+    if body.target not in ("disk", "db", "both"):
+        raise HTTPException(400, "target must be one of: disk, db, both")
+
+    result = run_cleanup(db, target=body.target, dry_run=body.dry_run)
+    action = "cleanup_dry_run" if body.dry_run else "cleanup"
+    detail = (
+        f"disk={result['disk_orphan_count']} db={result['db_orphan_count']}"
+        + (f" del_disk={result['deleted_disk']} del_db={result['deleted_db']}"
+           if not body.dry_run else "")
+    )
+    _audit_log(action, detail, admin_user.get("username", "admin"), _client_ip(request))
+    return {"ok": True, **result}

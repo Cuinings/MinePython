@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   fileserver:
     build: .
@@ -7,8 +5,29 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      # Persist runtime data across container rebuilds.
       - ./uploads:/app/uploads
+      - ./logs:/app/logs
       - ./server.db:/app/server.db
+      # Encryption key MUST persist — losing it makes stored plaintext copies
+      # unrecoverable. Mounted from the host, never baked into the image.
+      - ./.fernet_key:/app/.fernet_key
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
+      # ---- Production settings (override via a .env file or your orchestrator) ----
+      # Lock CORS to the public origin(s) that serve the UI.
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      # Session token lifetime (hours) and expired-token sweep interval (seconds).
+      - TOKEN_TTL_HOURS=${TOKEN_TTL_HOURS:-168}
+      - TOKEN_CLEANUP_INTERVAL_SECONDS=${TOKEN_CLEANUP_INTERVAL_SECONDS:-3600}
+      # Change the bootstrap admin password on first boot!
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

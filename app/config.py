@@ -14,17 +14,58 @@ except ImportError:
 # ---------- Paths ----------
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
-DB_PATH = Path(__file__).parent.parent / "server.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent.parent / "server.db")))
 DEFAULT_CATEGORY = "其他"
 
 # ---------- Server ----------
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 
+# ---------- Debug / safe-by-default ----------
+# When False (production), the interactive API docs (/docs, /redoc,
+# /openapi.json) are blocked and the global error handler stops leaking
+# internal exception strings to clients (ARCH-1 / R3). Set APP_DEBUG=true
+# only in trusted development environments.
+DEBUG = os.getenv("APP_DEBUG", "false").strip().lower() in ("1", "true", "yes", "on")
+
+# ---------- Orphan cleanup sweep (P1-6) ----------
+# Background scan interval (seconds) for disk/DB orphans. 0 disables the sweep
+# (the POST /api/admin/cleanup endpoint remains available on demand). When the
+# sweep is enabled it REPORTS only by default; set ORPHAN_CLEANUP_AUTO=true to
+# let it delete on its own (use with caution — deletions are audit-logged).
+ORPHAN_CLEANUP_INTERVAL_SECONDS = int(os.getenv("ORPHAN_CLEANUP_INTERVAL_SECONDS", "0"))
+ORPHAN_CLEANUP_AUTO = os.getenv("ORPHAN_CLEANUP_AUTO", "false").strip().lower() in (
+    "1", "true", "yes", "on"
+)
+
 # ---------- Admin defaults ----------
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 ADMIN_NICKNAME = os.getenv("ADMIN_NICKNAME", "管理员")
+
+# ---------- Auth / session tokens ----------
+# Each login mints an independent session token (multi-session, no overwrite)
+# that expires after this many hours. 0/negative disables expiry.
+TOKEN_TTL_HOURS = int(os.getenv("TOKEN_TTL_HOURS", "168"))  # 7 days
+# Background sweep interval (seconds) for purging expired token rows (ARCH-3).
+TOKEN_CLEANUP_INTERVAL_SECONDS = int(os.getenv("TOKEN_CLEANUP_INTERVAL_SECONDS", "3600"))
+
+# ---------- Login brute-force / rate limiting (ARCH-2) ----------
+# Per-username lock: after MAX_LOGIN_FAILS consecutive failures the account is
+# locked for LOGIN_LOCK_SECONDS. Per-IP throttle adds a second, IP-dimension
+# guard so one host cannot spray many usernames. Both are in-memory (single
+# process); front a multi-instance deployment with a shared store if needed.
+MAX_LOGIN_FAILS = int(os.getenv("MAX_LOGIN_FAILS", "5"))
+LOGIN_LOCK_SECONDS = int(os.getenv("LOGIN_LOCK_SECONDS", "900"))  # 15 min
+LOGIN_IP_MAX_FAILS = int(os.getenv("LOGIN_IP_MAX_FAILS", "20"))
+LOGIN_IP_WINDOW_SECONDS = int(os.getenv("LOGIN_IP_WINDOW_SECONDS", "300"))  # 5 min
+
+# ---------- Logging (centralized here; logging_config imports these) ----------
+LOG_DIR = Path(os.getenv("LOG_DIR", str(Path(__file__).parent.parent / "logs")))
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(10 * 1024 * 1024)))  # ~10 MB
+LOG_BACKUPS = int(os.getenv("LOG_BACKUPS", "5"))
+LOG_FILE_NAME = os.getenv("LOG_FILE_NAME", "app.log")
 
 # ---------- Upload limits ----------
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500"))
@@ -34,6 +75,12 @@ ALLOWED_EXTENSIONS: set[str] = set(
 )
 BLOCKED_EXTENSIONS: set[str] = set(
     e.strip().lower() for e in os.getenv("BLOCKED_EXTENSIONS", "").split(",") if e.strip()
+)
+
+# ---------- Batch download limits (guard against oversized ZIP / timeout) ----------
+MAX_BATCH_DOWNLOAD_FILES = int(os.getenv("MAX_BATCH_DOWNLOAD_FILES", "500"))
+MAX_BATCH_DOWNLOAD_BYTES = int(
+    os.getenv("MAX_BATCH_DOWNLOAD_BYTES", str(2 * 1024 * 1024 * 1024))  # 2 GB
 )
 
 # ---------- Extension -> category mapping (70+ extensions -> 8 categories) ----------

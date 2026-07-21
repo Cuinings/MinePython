@@ -1,74 +1,452 @@
 # -*- coding: utf-8 -*-
-"""SQLite database connection and initialization."""
+"""Database layer — SQLAlchemy 2.0 ORM.
 
-import sqlite3
+Defines engine, session factory, ORM models (User / File / AuditLog + RBAC
+tables) and the initialization / seeding logic. All raw ``sqlite3`` access has
+been replaced by the ORM so that schema, migrations and RBAC seed data live in
+one place.
+"""
 
-from app.config import DB_PATH, UPLOAD_DIR, EXT_CATEGORY
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Iterable
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    delete,
+    event,
+    inspect,
+    select,
+    text,
+)
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    mapped_column,
+    sessionmaker,
+)
+from sqlalchemy.pool import StaticPool
+
+from app.config import ADMIN_NICKNAME, ADMIN_PASSWORD, ADMIN_USERNAME, DB_PATH, UPLOAD_DIR, EXT_CATEGORY
+from app.utils import _hash_pw, _encrypt_plain, _decrypt_plain
+
+log = logging.getLogger("fileserver.db")
 
 
-def get_db() -> sqlite3.Connection:
-    """Get a new database connection with row_factory set to sqlite3.Row."""
-    db = sqlite3.connect(str(DB_PATH))
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA journal_mode=WAL")
-    return db
+# ---------------------------------------------------------------------------
+# Engine & session
+# ---------------------------------------------------------------------------
+# Use a real connection pool (QueuePool) so concurrent requests get their own
+# SQLite connection instead of fighting over a single shared one. WAL journaling
+# (set per-connection below) lets many readers and one writer proceed at once,
+# and ``busy_timeout`` makes SQLite wait under contention rather than raising
+# "database is locked" — which previously caused intermittent 500/401 errors
+# when the page's pending-poll and user-list requests fired together.
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    connect_args={"check_same_thread": False, "timeout": 30},
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    future=True,
+)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
-def init_db():
-    """Initialize database tables, migrate schema, and create default admin."""
-    db = get_db()
+@event.listens_for(engine, "connect")
+def _enable_wal(dbapi_conn, _record):
+    """Enable WAL journaling + a generous busy timeout for concurrent access."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
 
-    # ---------- users table ----------
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            username  TEXT UNIQUE NOT NULL,
-            password  TEXT NOT NULL,
-            nickname  TEXT NOT NULL DEFAULT '',
-            token     TEXT UNIQUE,
-            role      TEXT NOT NULL DEFAULT 'user',
-            status    TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-        );
-    """)
 
-    # ---------- files table ----------
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS files (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename    TEXT NOT NULL,
-            category    TEXT NOT NULL,
-            filepath    TEXT NOT NULL,
-            size        INTEGER NOT NULL DEFAULT 0,
-            uploaded_by TEXT DEFAULT 'anonymous',
-            uploaded_ip TEXT DEFAULT '',
-            uploaded_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-        );
-    """)
+# ---------------------------------------------------------------------------
+# Declarative base
+# ---------------------------------------------------------------------------
+class Base(DeclarativeBase):
+    pass
 
-    # Migration: add role/status/nickname columns if upgrading from v4.0
-    for col, default in [("role", "'user'"), ("status", "'active'"), ("nickname", "''")]:
-        try:
-            db.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT {default}")
-        except sqlite3.OperationalError:
-            pass
-    # Fill empty nicknames with username for existing users
-    db.execute("UPDATE users SET nickname = username WHERE nickname = '' OR nickname IS NULL")
 
-    # Ensure upload category dirs exist
-    for cat in set(EXT_CATEGORY.values()):
-        (UPLOAD_DIR / cat).mkdir(exist_ok=True)
-    (UPLOAD_DIR / "其他").mkdir(exist_ok=True)
+# ---------------------------------------------------------------------------
+# ORM models
+# ---------------------------------------------------------------------------
+class User(Base):
+    __tablename__ = "users"
 
-    # Ensure default admin exists
-    from app.utils import _hash_pw
-    from app.config import ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_NICKNAME
-    existing = db.execute("SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)).fetchone()
-    if not existing:
-        db.execute(
-            "INSERT INTO users (username, password, nickname, role, status) VALUES (?,?,?,?,?)",
-            (ADMIN_USERNAME, _hash_pw(ADMIN_PASSWORD), ADMIN_NICKNAME, "admin", "active"),
-        )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    password: Mapped[str] = mapped_column(String, nullable=False)
+    # Recoverable copy of the password used ONLY for admin display ("show
+    # plaintext"). Authentication always uses the salted hash in ``password``;
+    # ``password_plain`` is never used for verification and is stripped from
+    # the auth/session context dict.
+    password_plain: Mapped[str | None] = mapped_column(String, nullable=True)
+    nickname: Mapped[str] = mapped_column(String, nullable=False, default="")
+    token: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    role: Mapped[str] = mapped_column(String, nullable=False, default="user", index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    force_pw_change: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
+    )
+    created_at: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("(datetime('now','localtime'))")
+    )
 
+
+class SessionToken(Base):
+    """Independent per-login session tokens (multi-session, expiring).
+
+    Replaces the legacy single ``User.token`` column as the auth source so that
+    logging in from one device no longer overwrites the token of another active
+    session (the race that caused "logged out after upload" symptoms).
+    """
+
+    __tablename__ = "tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    expires_at: Mapped[str] = mapped_column(String, nullable=False)
+    device: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("(datetime('now','localtime'))")
+    )
+
+
+class File(Base):
+    __tablename__ = "files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    category: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    filepath: Mapped[str] = mapped_column(String, nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    uploaded_by: Mapped[str] = mapped_column(String, nullable=False, default="anonymous")
+    uploaded_ip: Mapped[str] = mapped_column(String, nullable=False, default="")
+    uploaded_at: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("(datetime('now','localtime'))")
+    )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String, nullable=False, default="anonymous")
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    target: Mapped[str] = mapped_column(String, nullable=False, default="")
+    ip: Mapped[str] = mapped_column(String, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("(datetime('now','localtime'))")
+    )
+
+
+class ExtCategory(Base):
+    """Extension -> category mapping (P1-4).
+
+    DB-backed and CRUD-managed so classification rules are configurable at
+    runtime instead of hardcoded in ``app.config.EXT_CATEGORY``. The
+    in-process cache in :mod:`app.services.category_service` is the hot path;
+    this table is the source of truth and is seeded from ``EXT_CATEGORY``.
+    """
+
+    __tablename__ = "ext_category"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    extension: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("(datetime('now','localtime'))")
+    )
+
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(String, nullable=False, default="")
+
+
+class Permission(Base):
+    __tablename__ = "permissions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(String, nullable=False, default="")
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), primary_key=True)
+    permission_id: Mapped[int] = mapped_column(ForeignKey("permissions.id"), primary_key=True)
+
+
+# ---------------------------------------------------------------------------
+# RBAC seed data
+# ---------------------------------------------------------------------------
+# Permission catalogue. Codes are checked by the @require_permission dependency.
+PERMISSIONS: dict[str, str] = {
+    "file:list": "浏览文件列表",
+    "file:upload": "上传文件",
+    "file:download": "下载文件",
+    "file:delete_self": "删除本人上传的文件",
+    "file:delete_any": "删除任意文件",
+    "category:manage": "管理分类（删除分类 / 整理）",
+    "user:read": "查看用户列表",
+    "user:manage": "创建 / 修改 / 删除用户",
+    "user:approve": "审批用户注册",
+    "audit:view": "查看全部审计日志（管理员 / 审核员）",
+    "audit:view_self": "查看本人审计记录（所有登录用户）",
+}
+
+# Role -> (description, [permissions]). Seeded on startup; kept in sync.
+ROLES: dict[str, tuple[str, list[str]]] = {
+    "admin": ("超级管理员，拥有全部权限", list(PERMISSIONS.keys())),
+    "reviewer": (
+        "审核员：可审批用户、查看审计、管理本人文件",
+        ["file:list", "file:upload", "file:download", "file:delete_self",
+         "user:read", "user:approve", "audit:view", "audit:view_self"],
+    ),
+    "uploader": (
+        "上传者：可上传 / 下载 / 删除本人文件",
+        ["file:list", "file:upload", "file:download", "file:delete_self", "audit:view_self"],
+    ),
+    "user": (
+        "普通用户：可上传 / 下载 / 删除本人文件",
+        ["file:list", "file:upload", "file:download", "file:delete_self", "audit:view_self"],
+    ),
+    "anonymous": (
+        "匿名访客：仅可浏览与下载文件（只读，无需登录）",
+        ["file:list", "file:download"],
+    ),
+}
+
+# Runtime cache: role name -> set of permission codes.
+_ROLE_PERMS: dict[str, set[str]] = {}
+
+
+def get_permissions_for_role(role: str) -> set[str]:
+    """Return the effective permission set for a role (cached)."""
+    return _ROLE_PERMS.get(role, set())
+
+
+def refresh_permissions() -> None:
+    """Reload the role -> permissions cache from the database."""
+    global _ROLE_PERMS
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(Role.name, Permission.code)
+            .join(RolePermission, RolePermission.role_id == Role.id)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+        ).all()
+    mapping: dict[str, set[str]] = {}
+    for name, code in rows:
+        mapping.setdefault(name, set()).add(code)
+    _ROLE_PERMS = mapping
+
+
+# ---------------------------------------------------------------------------
+# Dependency
+# ---------------------------------------------------------------------------
+def get_db() -> Iterable[Session]:
+    """FastAPI dependency that yields a session and closes it afterwards."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def orm_to_dict(obj) -> dict:
+    """Convert an ORM instance to a dict keyed by column names."""
+    if obj is None:
+        return {}
+    return {col.name: getattr(obj, col.name) for col in obj.__table__.columns}
+
+
+# ---------------------------------------------------------------------------
+# Initialization & seeding
+# ---------------------------------------------------------------------------
+def _migrate_legacy_schema() -> None:
+    """Add columns that may be missing on databases created before v4.1."""
+    with engine.begin() as conn:
+        existing = {c["name"] for c in inspect(engine).get_columns("users")}
+        for col, ddl in [
+            ("nickname", "TEXT NOT NULL DEFAULT ''"),
+            ("role", "TEXT NOT NULL DEFAULT 'user'"),
+            ("status", "TEXT NOT NULL DEFAULT 'active'"),
+            ("is_default", "INTEGER NOT NULL DEFAULT 0"),
+            ("force_pw_change", "INTEGER NOT NULL DEFAULT 0"),
+            ("password_plain", "TEXT"),
+        ]:
+            if col not in existing:
+                try:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
+                except Exception as exc:  # pragma: no cover - defensive
+                    log.warning("Migration skipped for %s: %s", col, exc)
+
+
+def _seed_rbac(db: Session) -> None:
+    """Idempotently create permissions & roles and wire their mappings."""
+    perm_ids: dict[str, int] = {}
+    for code, desc in PERMISSIONS.items():
+        perm = db.execute(select(Permission).where(Permission.code == code)).scalar_one_or_none()
+        if perm is None:
+            perm = Permission(code=code, description=desc)
+            db.add(perm)
+            db.flush()
+        perm_ids[code] = perm.id
+
+    for name, (desc, codes) in ROLES.items():
+        role = db.execute(select(Role).where(Role.name == name)).scalar_one_or_none()
+        if role is None:
+            role = Role(name=name, description=desc)
+            db.add(role)
+            db.flush()
+        # Replace mappings so the seed stays authoritative on each boot.
+        db.execute(delete(RolePermission).where(RolePermission.role_id == role.id))
+        for code in codes:
+            db.add(RolePermission(role_id=role.id, permission_id=perm_ids[code]))
     db.commit()
-    db.close()
+
+
+def _ensure_alembic_baseline() -> None:
+    """Bring the database under Alembic control (P2-1) — idempotent & safe.
+
+    Alembic is now the source of truth for schema evolution. This helper makes
+    adoption non-breaking for every existing database:
+
+    * No ``alembic_version`` table yet (fresh DB OR a pre-Alembic DB):
+        - first ``create_all`` guarantees the tables physically exist (a safe
+          no-op when they already do), then
+        - ``alembic stamp head`` marks the baseline revision as applied, so the
+          current schema is treated as "already migrated". No data is touched.
+    * ``alembic_version`` already present (Alembic-managed DB):
+        - ``alembic upgrade head`` applies any newer migrations on top.
+
+    If Alembic cannot be imported (e.g. a partial deploy), we silently fall
+    back to ``create_all`` so the app still boots. Everything here is additive —
+    nothing is ever dropped — so existing data is always preserved.
+    """
+    try:
+        from alembic import command
+        from alembic.config import Config
+    except ImportError:
+        log.warning(
+            "alembic not installed; falling back to Base.metadata.create_all()"
+        )
+        Base.metadata.create_all(bind=engine)
+        return
+
+    root = Path(__file__).parent.parent
+
+    def _alembic_cfg() -> "Config":
+        cfg = Config(str(root / "alembic.ini"))
+        cfg.set_main_option("script_location", str(root / "migrations"))
+        cfg.set_main_option("sqlalchemy.url", str(engine.url))
+        return cfg
+
+    has_version = False
+    try:
+        has_version = "alembic_version" in inspect(engine).get_table_names()
+    except Exception:  # pragma: no cover - defensive
+        has_version = False
+
+    if not has_version:
+        # Guarantee physical tables, then mark the baseline so future
+        # `alembic upgrade head` calls are no-ops instead of re-creating tables.
+        Base.metadata.create_all(bind=engine)
+        try:
+            command.stamp(_alembic_cfg(), "head")
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("alembic stamp head failed (non-fatal): %s", exc)
+    else:
+        try:
+            command.upgrade(_alembic_cfg(), "head")
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning(
+                "alembic upgrade head failed (non-fatal); falling back to create_all: %s",
+                exc,
+            )
+            Base.metadata.create_all(bind=engine)
+
+
+def init_db() -> None:
+    """Create/evolve tables via Alembic (P2-1), then seed admin & RBAC data."""
+    _ensure_alembic_baseline()
+    _migrate_legacy_schema()
+
+    # Ensure upload category directories exist
+    for cat in set(EXT_CATEGORY.values()) | {"其他"}:
+        (UPLOAD_DIR / cat).mkdir(parents=True, exist_ok=True)
+
+    with SessionLocal() as db:
+        # Default admin (idempotent). The bootstrap account is flagged
+        # is_default so the UI/API can refuse to delete it (prevents lockout).
+        existing = db.execute(select(User).where(User.username == ADMIN_USERNAME)).scalar_one_or_none()
+        if existing is None:
+            db.add(
+                User(
+                    username=ADMIN_USERNAME,
+                    password=_hash_pw(ADMIN_PASSWORD),
+                    password_plain=_encrypt_plain(ADMIN_PASSWORD),
+                    nickname=ADMIN_NICKNAME,
+                    role="admin",
+                    status="active",
+                    is_default=True,
+                    force_pw_change=True,
+                )
+            )
+        else:
+            # Older databases may already contain the admin without the flag
+            # or without a recoverable password copy. Backfill both.
+            existing.is_default = True
+            if not existing.password_plain:
+                existing.password_plain = _encrypt_plain(ADMIN_PASSWORD)
+            # Force a password change if the admin is still on the default one.
+            if _decrypt_plain(existing.password_plain or "") == ADMIN_PASSWORD:
+                existing.force_pw_change = True
+        db.commit()
+
+        _seed_rbac(db)
+
+        # P1-4: seed the extension->category mapping from the hardcoded
+        # EXT_CATEGORY defaults the first time only. After that the
+        # ext_category table is the source of truth and can be edited via the
+        # category-mapping CRUD API (admin, category:manage).
+        if db.execute(select(ExtCategory)).first() is None:
+            db.add_all(
+                [ExtCategory(extension=ext, category=cat) for ext, cat in EXT_CATEGORY.items()]
+            )
+            db.commit()
+
+    # P0-2: encrypt any legacy plaintext password_plain already in the DB so it
+    # is never stored as raw text. Already-encrypted values decrypt fine and are
+    # left untouched; only raw plaintext triggers re-encryption.
+    with SessionLocal() as db:
+        for u in db.execute(select(User)).scalars().all():
+            p = u.password_plain
+            if p and _decrypt_plain(p) == "":
+                u.password_plain = _encrypt_plain(p)
+        db.commit()
+
+    refresh_permissions()
+    log.info("Database initialized (RBAC roles: %s)", ", ".join(ROLES))

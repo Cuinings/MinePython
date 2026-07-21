@@ -17,21 +17,28 @@ All application logic lives in the app/ package:
 
 if __name__ == "__main__":
     import uvicorn
-    from app.database import init_db
-    from app.config import DB_PATH, UPLOAD_DIR
-    from pathlib import Path
+    from sqlalchemy import func, select
+
+    from app.config import DB_PATH, UPLOAD_DIR, HOST, PORT
+    from app.database import File, SessionLocal, User, init_db
+    from app.logging_config import setup_logging
+
+    # Configure logging (rotating JSON file + console) before uvicorn starts.
+    # uvicorn is told NOT to install its own logging config / access logger so
+    # that all output flows through our handlers (structured + redacted).
+    setup_logging()
 
     init_db()
 
     # Print startup info
-    db = __import__('app.database', fromlist=['get_db']).get_db()
-    user_count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    file_count = db.execute("SELECT COUNT(*) FROM files").fetchone()[0]
-    db.close()
+    with SessionLocal() as db:
+        user_count = db.scalar(select(func.count()).select_from(User)) or 0
+        file_count = db.scalar(select(func.count()).select_from(File)) or 0
 
-    print(f"\n  File Server v4.2")
+    print(f"\n  File Server v4.6")
     print(f"  {'-' * 30}")
     print(f"  Web UI:     http://localhost:8000")
+    print(f"  API Home:   http://localhost:8000/api")
     print(f"  Swagger:    http://localhost:8000/docs")
     print(f"  Database:   {DB_PATH}")
     print(f"  Users:      {user_count} registered")
@@ -39,4 +46,11 @@ if __name__ == "__main__":
     print(f"  Storage:    {UPLOAD_DIR}")
     print(f"  {'-' * 30}\n")
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run(
+        "app.main:app",
+        host=HOST,
+        port=PORT,
+        reload=False,
+        log_config=None,   # we own logging (see app.logging_config)
+        access_log=False,  # our request middleware logs access structurally
+    )

@@ -1,3 +1,14 @@
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 python-multipart>=0.0.6
+python-dotenv>=1.0.0
+sqlalchemy>=2.0
+# Security: argon2id password hashing + Fernet symmetric encryption.
+# Imported by app/utils.py — required at runtime (previously missing, which
+# broke `pip install -r requirements.txt` and `docker build`).
+argon2-cffi>=23.1.0
+cryptography>=42.0.0
+# Database migrations (P2-1): schema is now tracked by Alembic. `init_db()`
+# auto-applies pending migrations on startup, so new schema changes should add
+# a revision under migrations/versions/ instead of relying on create_all alone.
+alembic>=1.13.0

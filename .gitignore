@@ -1,4 +1,5 @@
-# Python
+# Environment
+.env
 __pycache__/
 *.pyc
 *.pyo
@@ -19,3 +20,14 @@ uploads/
 # OS
 .DS_Store
 Thumbs.db
+
+# Encryption key (local, never commit)
+.fernet_key
+
+# Operational logs (rotating, runtime-generated)
+logs/
+server.log
+server_v46.log
+*.log.1
+*.log.2
+*.log.3

@@ -61,12 +61,13 @@ def init_db():
     (UPLOAD_DIR / "其他").mkdir(exist_ok=True)
 
     # Ensure default admin exists
-    from app.utils import _hash_pw  # local import to avoid circular dependency
-    existing = db.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()
+    from app.utils import _hash_pw
+    from app.config import ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_NICKNAME
+    existing = db.execute("SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)).fetchone()
     if not existing:
         db.execute(
             "INSERT INTO users (username, password, nickname, role, status) VALUES (?,?,?,?,?)",
-            ("admin", _hash_pw("admin123"), "管理员", "admin", "active"),
+            (ADMIN_USERNAME, _hash_pw(ADMIN_PASSWORD), ADMIN_NICKNAME, "admin", "active"),
         )
 
     db.commit()

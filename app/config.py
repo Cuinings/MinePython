@@ -1,14 +1,42 @@
 # -*- coding: utf-8 -*-
-"""File Server configuration constants."""
+"""File Server configuration — loads from .env with sensible defaults."""
 
+import os
 from pathlib import Path
 
+# Auto-load .env if python-dotenv is installed
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+except ImportError:
+    pass  # dotenv is optional
+
+# ---------- Paths ----------
 UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 DB_PATH = Path(__file__).parent.parent / "server.db"
 DEFAULT_CATEGORY = "其他"
 
-# Extension -> category mapping (70+ extensions -> 8 categories)
+# ---------- Server ----------
+HOST = os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("PORT", "8000"))
+
+# ---------- Admin defaults ----------
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_NICKNAME = os.getenv("ADMIN_NICKNAME", "管理员")
+
+# ---------- Upload limits ----------
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500"))
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+ALLOWED_EXTENSIONS: set[str] = set(
+    e.strip().lower() for e in os.getenv("ALLOWED_EXTENSIONS", "").split(",") if e.strip()
+)
+BLOCKED_EXTENSIONS: set[str] = set(
+    e.strip().lower() for e in os.getenv("BLOCKED_EXTENSIONS", "").split(",") if e.strip()
+)
+
+# ---------- Extension -> category mapping (70+ extensions -> 8 categories) ----------
 EXT_CATEGORY: dict[str, str] = {
     ".jpg": "图片", ".jpeg": "图片", ".png": "图片", ".gif": "图片",
     ".bmp": "图片", ".webp": "图片", ".svg": "图片", ".ico": "图片",

@@ -1,18 +1,32 @@
 # -*- coding: utf-8 -*-
 """File endpoints: list, upload, download, delete."""
 
+import logging
 import shutil
 import uuid
-from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, File, Form, Header, Request, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.auth import get_current_user
+from app.config import MAX_UPLOAD_SIZE_BYTES, ALLOWED_EXTENSIONS, BLOCKED_EXTENSIONS
 from app.database import get_db
 from app.utils import _categorize, _format_size
 
+log = logging.getLogger("uvicorn")
 router = APIRouter(prefix="/api", tags=["Files"])
+
+
+def _validate_upload(filename: str, size: int):
+    """Validate upload against configured limits. Raises HTTPException on violation."""
+    ext = Path(filename).suffix.lower()
+    if ALLOWED_EXTENSIONS and ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"File type '{ext}' is not allowed")
+    if BLOCKED_EXTENSIONS and ext in BLOCKED_EXTENSIONS:
+        raise HTTPException(400, f"File type '{ext}' is blocked")
+    if size > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(400, f"File exceeds max size of {MAX_UPLOAD_SIZE_BYTES // (1024*1024)}MB")
 
 
 @router.get("/files")
@@ -47,6 +61,9 @@ async def upload_file(
     user = get_current_user(authorization)
     if category == "auto" or not category:
         category = _categorize(file.filename)
+
+    # Validate upload
+    _validate_upload(file.filename, file.size if hasattr(file, 'size') and file.size else 0)
 
     from app.config import UPLOAD_DIR
     cat_dir = UPLOAD_DIR / category

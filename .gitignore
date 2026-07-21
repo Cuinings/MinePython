@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# IDE
+.idea/
+
+# Database
+server.db
+server.db-journal
+server.db-wal
+server.db-shm
+
+# Uploaded files (runtime data)
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db

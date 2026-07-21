@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  fileserver:
+    build: .
+    container_name: fileserver
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./server.db:/app/server.db
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.idea/
+.git/
+.gitignore
+*.db-journal
+*.db-wal
+*.db-shm
+README.md
+.dockerignore

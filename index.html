@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">文件服务器</title>
+    <style>
+        :root {
+            --bg: #0d1117; --card: #161b22; --border: #30363d;
+            --text: #c9d1d9; --dim: #8b949e; --accent: #58a6ff;
+            --danger: #f85149; --green: #3fb950; --purple: #a371f7;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg); color: var(--text);
+            min-height: 100vh; display: flex; justify-content: center;
+        }
+
+        /* ======== Container types ======== */
+        .login-container {
+            width: 100%; max-width: 400px;
+            display: flex; flex-direction: column; justify-content: center;
+            padding: 40px 20px; min-height: 100vh;
+        }
+        .app-container { width: 100%; max-width: 860px; padding: 40px 20px; display: none; }
+        .app-container.active { display: block; }
+
+        /* ======== Login screen ======== */
+        #loginScreen { display: flex; }
+        .login-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 36px 32px;
+        }
+        .login-card h1 { font-size: 26px; margin-bottom: 4px; text-align: center; }
+        .login-card .sub { color: var(--dim); font-size: 13px; margin-bottom: 28px; text-align: center; }
+        .login-card label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+        .login-card input {
+            width: 100%; padding: 10px 14px; border-radius: 8px;
+            border: 1px solid var(--border); background: var(--bg);
+            color: var(--text); font-size: 14px; margin-bottom: 14px; outline: none;
+        }
+        .login-card input:focus { border-color: var(--accent); }
+        .login-card .btn-login {
+            width: 100%; padding: 10px; border-radius: 8px; font-size: 15px;
+            background: var(--accent); color: #fff; border: none; cursor: pointer;
+            font-weight: 500; margin-top: 4px;
+        }
+        .login-card .btn-login:hover { opacity: .85; }
+        .login-card .switch {
+            font-size: 13px; color: var(--dim); text-align: center; margin-top: 14px; cursor: pointer;
+        }
+        .login-card .switch:hover { color: var(--accent); }
+        .login-card .error { color: var(--danger); font-size: 13px; margin-bottom: 10px; display: none; }
+        .login-card .skip {
+            font-size: 12px; color: var(--dim); text-align: center; margin-top: 18px; cursor: pointer;
+        }
+        .login-card .skip:hover { color: var(--text); }
+
+        /* ======== App header ======== */
+        .app-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .app-header h1 { font-size: 20px; }
+        .header-right { display: flex; align-items: center; gap: 10px; }
+        .header-right .user { font-size: 12px; color: var(--accent); }
+        .header-right .logout-btn { font-size: 11px; color: var(--dim); cursor: pointer; background: none; border: none; }
+        .header-right .logout-btn:hover { color: var(--danger); }
+        .lang-btn {
+            padding: 4px 10px; border-radius: 14px; font-size: 12px;
+            border: 1px solid var(--border); background: var(--card);
+            color: var(--dim); cursor: pointer; transition: .15s;
+        }
+        .lang-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .lang-wrapper { position: relative; }
+        /* Language dropdown */
+        .lang-menu {
+            display: none; position: absolute; top: 100%; right: 0;
+            margin-top: 6px; background: var(--card); border: 1px solid var(--border);
+            border-radius: 8px; padding: 4px 0; z-index: 99; min-width: 110px;
+            box-shadow: 0 4px 16px rgba(0,0,0,.35);
+        }
+        .lang-menu.show { display: block; }
+        .lang-menu-item {
+            display: block; width: 100%; padding: 8px 16px; border: none;
+            background: transparent; color: var(--text); font-size: 13px;
+            cursor: pointer; text-align: left; transition: .1s;
+        }
+        .lang-menu-item:hover { background: rgba(88,166,255,.12); color: var(--accent); }
+        .lang-menu-item.active { color: var(--accent); font-weight: 600; }
+        .app-subtitle { color: var(--dim); margin-bottom: 20px; font-size: 13px; }
+        .app-subtitle a { color: var(--accent); text-decoration: none; }
+
+        /* ======== Category bar ======== */
+        .cat-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .cat-tag {
+            padding: 5px 14px; border-radius: 20px; font-size: 13px;
+            border: 1px solid var(--border); background: var(--card);
+            color: var(--dim); cursor: pointer; transition: .15s; white-space: nowrap;
+        }
+        .cat-tag:hover { border-color: var(--accent); color: var(--text); }
+        .cat-tag.active { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.1); }
+        .cat-tag.auto { border-color: rgba(163,113,247,.3); }
+        .cat-tag.auto.active { border-color: var(--purple); color: var(--purple); background: rgba(163,113,247,.12); }
+        .cat-tag .count { color: var(--dim); margin-left: 4px; }
+        .cat-new {
+            padding: 5px 10px; border-radius: 20px; font-size: 13px;
+            border: 1px dashed var(--border); background: transparent;
+            color: var(--dim); cursor: pointer; transition: .15s;
+        }
+        .cat-new:hover { border-color: var(--green); color: var(--green); }
+        .cat-del {
+            padding: 5px; border-radius: 20px; font-size: 11px;
+            border: 1px solid transparent; background: transparent;
+            color: var(--dim); cursor: pointer; transition: .15s;
+            opacity: 0; margin-left: -4px;
+        }
+        .cat-tag:hover .cat-del { opacity: 1; border-color: var(--border); }
+        .cat-del:hover { color: var(--danger); border-color: var(--danger)!important; }
+
+        /* ======== Upload bar (Files screen) ======== */
+        .upload-entry-bar {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 18px; border-radius: 10px;
+            border: 1px solid var(--border); background: var(--card);
+            margin-bottom: 20px; cursor: pointer; transition: .15s;
+        }
+        .upload-entry-bar:hover { border-color: var(--accent); background: rgba(88,166,255,.04); }
+        .upload-entry-bar .icon-circle {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: rgba(88,166,255,.15); display: flex; align-items: center; justify-content: center;
+            font-size: 18px; flex-shrink: 0;
+        }
+        .upload-entry-bar .label { flex: 1; font-size: 14px; }
+        .upload-entry-bar .arrow { color: var(--dim); font-size: 18px; }
+
+        /* ======== Upload screen ======== */
+        .back-row { margin-bottom: 16px; }
+        .back-btn {
+            font-size: 13px; color: var(--dim); cursor: pointer;
+            background: none; border: none; padding: 4px 0;
+        }
+        .back-btn:hover { color: var(--accent); }
+
+        .drop-zone {
+            border: 2px dashed var(--border); border-radius: 12px;
+            padding: 60px 40px; text-align: center;
+            transition: border-color .2s, background .2s; cursor: pointer;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--accent); background: rgba(88,166,255,.05);
+        }
+        .drop-zone .icon { font-size: 48px; margin-bottom: 12px; display: block; }
+        .drop-zone h3 { font-size: 15px; margin-bottom: 6px; color: var(--text); }
+        .drop-zone p { color: var(--dim); font-size: 13px; }
+        .drop-zone .cat-hint { display: inline-block; margin-top: 12px; padding: 4px 14px; border-radius: 12px; font-size: 12px; }
+
+        /* ======== File list ======== */
+        .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        .section-header h2 { font-size: 14px; color: var(--dim); font-weight: 400; }
+        .file-list { display: flex; flex-direction: column; gap: 6px; }
+        .file-card {
+            display: flex; align-items: center; gap: 8px;
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 8px; padding: 10px 14px; transition: border-color .15s;
+        }
+        .file-card:hover { border-color: var(--accent); }
+        .file-preview {
+            width: 40px; height: 40px; border-radius: 6px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,.04); overflow: hidden;
+            font-size: 20px;
+        }
+        .file-preview img {
+            width: 100%; height: 100%; object-fit: cover;
+        }
+        .file-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .file-cat {
+            font-size: 10px; color: var(--purple); background: rgba(163,113,247,.12);
+            padding: 2px 7px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+        }
+        .file-cat:hover { background: rgba(163,113,247,.25); }
+        .file-uploader { font-size: 10px; color: var(--dim); min-width: 70px; text-align: right; white-space: nowrap; }
+        .file-meta { color: var(--dim); font-size: 11px; min-width: 70px; text-align: right; }
+        .badge {
+            font-size: 10px; padding: 1px 7px; border-radius: 8px; margin-left: 6px;
+        }
+        .badge-admin { background: rgba(163,113,247,.2); color: var(--purple); }
+        .badge-pending { background: rgba(210,153,29,.2); color: #d2991d; }
+        .badge-active { background: rgba(63,185,80,.15); color: var(--green); }
+        .empty { text-align: center; color: var(--dim); padding: 48px 0; font-size: 13px; }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 6px 14px; border-radius: 6px; font-size: 12px;
+            border: 1px solid var(--border); background: var(--card);
+            color: var(--text); cursor: pointer; transition: .15s; text-decoration: none;
+        }
+        .btn:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-danger:hover { border-color: var(--danger); color: var(--danger); }
+        .btn-xs { padding: 3px 10px; font-size: 11px; }
+
+        /* File detail */
+        .detail-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 24px;
+        }
+        .detail-preview {
+            width: 100%; max-height: 300px; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,.03); overflow: hidden; margin-bottom: 20px;
+        }
+        .detail-preview img { max-width: 100%; max-height: 300px; object-fit: contain; }
+        .detail-preview .icon { font-size: 80px; padding: 60px 0; }
+        .detail-info { display: grid; grid-template-columns: 120px 1fr; gap: 10px 16px; font-size: 13px; }
+        .detail-info .label { color: var(--dim); }
+        .detail-info .value { color: var(--text); word-break: break-all; }
+        .detail-actions { margin-top: 20px; display: flex; gap: 10px; }
+
+        /* Pending notification bar */
+        .pending-bar {
+            display: none; align-items: center; gap: 10px;
+            padding: 10px 16px; border-radius: 8px; margin-bottom: 16px;
+            background: rgba(210,153,29,.12); border: 1px solid rgba(210,153,29,.3);
+            font-size: 13px; color: #d2991d;
+        }
+        .pending-bar.show { display: flex; }
+        .pending-bar .count { font-weight: 600; }
+        .pending-bar .users { flex: 1; font-size: 12px; }
+        .pending-bar .btn-approve {
+            padding: 3px 12px; border-radius: 5px; font-size: 11px;
+            border: 1px solid var(--green); background: transparent;
+            color: var(--green); cursor: pointer; white-space: nowrap;
+        }
+        .pending-bar .btn-approve:hover { background: rgba(63,185,80,.15); }
+
+        .toast {
+            position: fixed; top: 20px; right: 20px;
+            background: var(--card); border: 1px solid var(--green);
+            color: var(--text); padding: 10px 18px; border-radius: 8px;
+            font-size: 13px; z-index: 999;
+            animation: fadeIn .3s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } }
+
+        /* Modal */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,.55); z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 28px 32px; width: 380px; max-width: 94%;
+        }
+        .modal-card h2 { font-size: 18px; margin-bottom: 18px; }
+        .modal-card label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+        .modal-card input, .modal-card select {
+            width: 100%; padding: 9px 12px; border-radius: 7px;
+            border: 1px solid var(--border); background: var(--bg);
+            color: var(--text); font-size: 13px; margin-bottom: 12px; outline: none;
+        }
+        .modal-card input:focus, .modal-card select:focus { border-color: var(--accent); }
+        .modal-card select { appearance: none; cursor: pointer; }
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
+        .modal-actions .btn-save {
+            background: var(--accent); color: #fff; border: none;
+        }
+        .modal-actions .btn-save:hover { opacity: .85; }
+        .modal-actions .btn-cancel { background: transparent; }
+    </style>
+</head>
+<body>
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div class="login-container" id="loginScreen">
+    <div class="login-card">
+        <h1 data-i18n="h1">📁 文件服务器</h1>
+        <div class="sub" data-i18n="login_sub">登录以继续</div>
+        <div class="error" id="loginError"></div>
+        <label data-i18n="username_ph">用户名</label>
+        <input type="text" id="loginUser" data-i18n-placeholder="username_ph" placeholder="用户名">
+        <label data-i18n="password_ph">密码</label>
+        <input type="password" id="loginPass" data-i18n-placeholder="password_ph" placeholder="密码">
+        <div id="loginNickRow" style="display:none">
+            <label data-i18n="nickname_label">昵称</label>
+            <input type="text" id="loginNick" data-i18n-placeholder="nickname_label" placeholder="昵称（可选）">
+        </div>
+        <button class="btn-login" id="loginSubmitBtn" onclick="doAuth()" data-i18n="login">登录</button>
+        <div class="switch" onclick="switchAuthMode()" id="loginSwitch" data-i18n="no_account">没有账号? 注册</div>
+        <div class="skip" onclick="skipLogin()" data-i18n="skip_login">跳过, 以匿名身份进入</div>
+    </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div class="app-container" id="appScreen">
+    <div class="app-header">
+        <h1 data-i18n="h1">📁 文件服务器</h1>
+        <div class="header-right">
+            <span class="user" id="userDisplay"></span>
+            <a href="#" id="adminLink" style="display:none;font-size:12px;color:var(--purple);text-decoration:none;margin-right:4px" onclick="goAdmin();return false;">管理</a>
+            <button class="logout-btn" onclick="doLogout()" data-i18n="logout">退出</button>
+            <div class="lang-wrapper">
+                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
+                <div class="lang-menu" id="langMenu">
+                    <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
+                    <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
+                    <button class="lang-menu-item" data-lang="ru" onclick="switchToLang('ru')">Русский</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <p class="app-subtitle">
+        <span data-i18n="subtitle_label">分类管理</span> · <a href="/docs" target="_blank">Swagger API</a>
+    </p>
+
+    <!-- Pending approval notification (admin only) -->
+    <div class="pending-bar" id="pendingBar">
+        <span class="count" id="pendingCount"></span>
+        <span class="users" id="pendingUsers"></span>
+        <button class="btn-approve" onclick="goAdmin()" data-i18n="view_approvals">查看审批</button>
+    </div>
+
+    <!-- ===== FILES VIEW ===== -->
+    <div id="viewFiles">
+        <div class="cat-bar" id="catBar"></div>
+        <!-- Upload entry point -->
+        <div class="upload-entry-bar" onclick="goUpload()">
+            <div class="icon-circle">⬆️</div>
+            <div class="label" data-i18n="upload_entry">上传文件</div>
+            <div class="arrow">→</div>
+        </div>
+        <div class="section-header">
+            <h2 id="listTitle"></h2>
+            <button class="btn btn-xs" onclick="organizeRoot()" data-i18n-title="organize_title" data-i18n="btn_organize">🗂 整理归类</button>
+        </div>
+        <div class="file-list" id="fileList">
+            <div class="empty" data-i18n="loading">加载中...</div>
+        </div>
+    </div>
+
+    <!-- ===== FILE DETAIL VIEW ===== -->
+    <div id="viewDetail" style="display:none">
+        <div class="back-row">
+            <button class="back-btn" onclick="goFiles()" data-i18n="back_files">← 返回文件浏览</button>
+        </div>
+        <div class="detail-card" id="detailContent"></div>
+    </div>
+
+    <!-- ===== UPLOAD VIEW ===== -->
+    <div id="viewUpload" style="display:none">
+        <div class="back-row">
+            <button class="back-btn" onclick="goFiles()" data-i18n="back_files">← 返回文件浏览</button>
+        </div>
+        <div class="cat-bar" id="uploadCatBar"></div>
+        <div class="drop-zone" id="dropZone">
+            <span class="icon">⬆️</span>
+            <h3 data-i18n="upload_title">点击或拖拽文件到此处上传</h3>
+            <p data-i18n="upload_desc">支持任意文件类型，可批量上传</p>
+            <span class="cat-hint" id="uploadHint"></span>
+            <input type="file" id="fileInput" multiple hidden>
+        </div>
+    </div>
+
+    <!-- ===== ADMIN VIEW ===== -->
+    <div id="viewAdmin" style="display:none">
+        <div class="back-row">
+            <button class="back-btn" onclick="goFiles()" data-i18n="back_files">← 返回文件浏览</button>
+        </div>
+        <div class="section-header">
+            <h2 data-i18n="user_mgmt">用户管理</h2>
+            <button class="btn btn-xs" onclick="openAddUserModal()" style="color:var(--accent);border-color:var(--accent)" data-i18n="btn_add_user">+ 添加用户</button>
+        </div>
+        <div class="file-list" id="adminUserList">
+            <div class="empty" data-i18n="loading">加载中...</div>
+        </div>
+    </div>
+
+    <!-- ===== MODAL: Add / Edit User ===== -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal-card">
+            <h2 id="userModalTitle">添加用户</h2>
+            <label data-i18n="username_ph">用户名</label>
+            <input type="text" id="modalUser" data-i18n-placeholder="username_ph" placeholder="用户名">
+            <label data-i18n="password_ph">密码</label>
+            <input type="password" id="modalPass" data-i18n-placeholder="password_ph" placeholder="密码">
+            <label data-i18n="nickname_label">昵称</label>
+            <input type="text" id="modalNick" data-i18n-placeholder="nickname_label" placeholder="昵称">
+            <label data-i18n="role_label">角色</label>
+            <select id="modalRole">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+            </select>
+            <label data-i18n="status_label">状态</label>
+            <select id="modalStatus">
+                <option value="active">active</option>
+                <option value="pending">pending</option>
+            </select>
+            <div class="modal-actions">
+                <button class="btn btn-cancel" onclick="closeUserModal()" data-i18n="btn_cancel">取消</button>
+                <button class="btn btn-save" onclick="saveUser()" id="modalSaveBtn" data-i18n="btn_save">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ==================== i18n ====================
+var I18N = {
+    zh: {
+        title:"文件服务器",h1:"📁 文件服务器",subtitle_label:"分类管理",
+        loading:"加载中...",auto_tag:"🤖 自动归类",new_tag:"+ 新建",
+        del_title:"删除分类",btn_organize:"🗂 整理归类",
+        organize_title:"将根目录散落文件按类型归类",
+        upload_title:"点击或拖拽文件到此处上传",upload_desc:"支持任意文件类型，可批量上传",
+        upload_entry:"上传文件",
+        hint_auto:"上传模式: 🤖 自动归类（根据文件类型）",hint_target:"上传到: ",
+        all_files:"全部文件",cat_label:"分类: ",no_files:"暂无文件",view_cat:"查看该分类",
+        btn_dl:"下载",btn_del:"删除",prompt_cat:"输入新分类名称:",
+        confirm_del_cat:"确定删除分类",and_all_files:"及其下所有文件？",
+        confirm_del_file:"确定删除",confirm_organize:"将根目录散落文件按类型归类？",
+        toast_deleted:"已删除",toast_failed:"失败",toast_del_failed:"删除失败",
+        toast_upload_ok:"已上传 → ",toast_upload_fail:"上传失败",
+        toast_organized:"已整理",files_suffix:" 个文件",toast_organize_fail:"整理失败",
+        auto_label:"自动归类",login:"登录",register:"注册",logout:"退出",
+        login_sub:"登录以继续",register_sub:"注册新账号",
+        username_ph:"用户名",password_ph:"密码",
+        no_account:"没有账号? 注册",has_account:"已有账号? 登录",
+        skip_login:"跳过, 以匿名身份进入",
+        back_files:"← 返回文件浏览",anonymous:"匿名",
+        pending_approval:"注册已提交, 等待管理员审批",
+        user_mgmt:"用户管理",pending:"待审批",active:"已激活",
+        approve:"通过",reject:"拒绝",confirm_reject:"确定拒绝并删除该用户？",
+        no_users:"暂无用户",fill_fields:"请填写所有字段",net_error:"网络错误",
+        register_sub:"注册新账号",login_sub:"登录以继续",
+        pending_alert:"待审批用户",view_approvals:"查看审批",
+        detail_name:"文件名",detail_category:"分类",detail_path:"路径",
+        detail_size:"大小",detail_uploader:"上传者",detail_ip:"上传IP",
+        detail_time:"上传时间",
+        nickname_label:"昵称",password_label:"密码",
+        btn_add_user:"+ 添加用户",btn_edit:"编辑",btn_save:"保存",btn_cancel:"取消",
+        role_label:"角色",status_label:"状态",
+        modal_add_title:"添加用户",modal_edit_title:"编辑用户",
+        click_show_pw:"点击显示密码哈希值",
+    },
+    en: {
+        title:"File Server",h1:"📁 File Server",subtitle_label:"Categories",
+        loading:"Loading...",auto_tag:"🤖 Auto",new_tag:"+ New",
+        del_title:"Delete category",btn_organize:"🗂 Organize",
+        organize_title:"Move root files into category folders",
+        upload_title:"Click or drag files here to upload",upload_desc:"Supports any file type, batch upload",
+        upload_entry:"Upload Files",
+        hint_auto:"Mode: 🤖 Auto-detect (by file extension)",hint_target:"Target: ",
+        all_files:"All Files",cat_label:"Category: ",no_files:"No files",view_cat:"View this category",
+        btn_dl:"DL",btn_del:"Del",prompt_cat:"Category name:",
+        confirm_del_cat:"Delete category \"",and_all_files:"\" and all files?",
+        confirm_del_file:"Delete \"",confirm_organize:"Move root files into category folders?",
+        toast_deleted:"Deleted",toast_failed:"Failed",toast_del_failed:"Delete failed",
+        toast_upload_ok:"Uploaded -> ",toast_upload_fail:"Upload failed",
+        toast_organized:"Organized ",files_suffix:" file(s)",toast_organize_fail:"Organize failed",
+        auto_label:"auto",login:"Login",register:"Register",logout:"Logout",
+        login_sub:"Login to continue",register_sub:"Create new account",
+        username_ph:"Username",password_ph:"Password",
+        no_account:"No account? Register",has_account:"Have account? Login",
+        skip_login:"Skip, enter as anonymous",
+        back_files:"← Back to files",anonymous:"anonymous",
+        pending_approval:"Registration submitted, pending admin approval",
+        user_mgmt:"User Management",pending:"pending",active:"active",
+        approve:"Approve",reject:"Reject",confirm_reject:"Reject and delete this user?",
+        no_users:"No users",fill_fields:"Fill all fields",net_error:"Network error",
+        register_sub:"Create new account",login_sub:"Login to continue",
+        pending_alert:"Pending approvals",view_approvals:"Review",
+        detail_name:"Filename",detail_category:"Category",detail_path:"Path",
+        detail_size:"Size",detail_uploader:"Uploader",detail_ip:"Upload IP",
+        detail_time:"Upload Time",
+        nickname_label:"Nickname",password_label:"Password",
+        btn_add_user:"+ Add User",btn_edit:"Edit",btn_save:"Save",btn_cancel:"Cancel",
+        role_label:"Role",status_label:"Status",
+        modal_add_title:"Add User",modal_edit_title:"Edit User",
+        click_show_pw:"Click to show password hash",
+    },
+    ru: {
+        title:"Файловый сервер",h1:"📁 Файловый сервер",subtitle_label:"Категории",
+        loading:"Загрузка...",auto_tag:"🤖 Авто",new_tag:"+ Новый",
+        del_title:"Удалить категорию",btn_organize:"🗂 Упорядочить",
+        organize_title:"Переместить корневые файлы в папки категорий",
+        upload_title:"Нажмите или перетащите файлы для загрузки",
+        upload_desc:"Поддерживаются любые типы файлов",upload_entry:"Загрузить файлы",
+        hint_auto:"Режим: 🤖 Автоопределение (по расширению)",hint_target:"Цель: ",
+        all_files:"Все файлы",cat_label:"Категория: ",no_files:"Нет файлов",view_cat:"Просмотр категории",
+        btn_dl:"Скачать",btn_del:"Удалить",prompt_cat:"Название категории:",
+        confirm_del_cat:"Удалить категорию \"",and_all_files:"\" и все файлы?",
+        confirm_del_file:"Удалить \"",confirm_organize:"Переместить корневые файлы в папки категорий?",
+        toast_deleted:"Удалено",toast_failed:"Ошибка",toast_del_failed:"Ошибка удаления",
+        toast_upload_ok:"Загружено → ",toast_upload_fail:"Ошибка загрузки",
+        toast_organized:"Упорядочено ",files_suffix:" файл(ов)",toast_organize_fail:"Ошибка упорядочивания",
+        auto_label:"авто",login:"Войти",register:"Регистрация",logout:"Выйти",
+        login_sub:"Войдите для продолжения",register_sub:"Создать аккаунт",
+        username_ph:"Имя пользователя",password_ph:"Пароль",
+        no_account:"Нет аккаунта? Регистрация",has_account:"Есть аккаунт? Войти",
+        skip_login:"Пропустить, войти анонимно",
+        back_files:"← Назад к файлам",anonymous:"аноним",
+        pending_approval:"Регистрация отправлена, ожидает одобрения",
+        user_mgmt:"Управление пользователями",pending:"ожидание",active:"активен",
+        approve:"Одобрить",reject:"Отклонить",confirm_reject:"Отклонить и удалить пользователя?",
+        no_users:"Нет пользователей",fill_fields:"Заполните все поля",net_error:"Ошибка сети",
+        register_sub:"Создать аккаунт",login_sub:"Войдите для продолжения",
+        pending_alert:"Новые заявки",view_approvals:"Обзор",
+        detail_name:"Имя файла",detail_category:"Категория",detail_path:"Путь",
+        detail_size:"Размер",detail_uploader:"Загрузчик",detail_ip:"IP",
+        detail_time:"Время",
+        nickname_label:"Псевдоним",password_label:"Пароль",
+        btn_add_user:"+ Добавить",btn_edit:"Ред.",btn_save:"Сохранить",btn_cancel:"Отмена",
+        role_label:"Роль",status_label:"Статус",
+        modal_add_title:"Добавить",modal_edit_title:"Изменить",
+        click_show_pw:"Показать хеш пароля",
+    }
+};
+
+var LANGS = ['zh','en','ru'];
+var LANG_LABELS = {zh:'中',en:'EN',ru:'RU'};
+var LANG_NAMES = {zh:'中文',en:'English',ru:'Русский'};
+var lang = localStorage.getItem('fs_lang') || 'zh';
+
+function t(key) {
+    var m = I18N[lang];
+    return m && m[key] !== undefined ? m[key] : key;
+}
+
+function toggleLangMenu(e) {
+    e.stopPropagation();
+    var menu = document.getElementById('langMenu');
+    menu.classList.toggle('show');
+}
+
+function switchToLang(code) {
+    if (lang === code) { document.getElementById('langMenu').classList.remove('show'); return; }
+    lang = code;
+    localStorage.setItem('fs_lang', lang);
+    applyI18n();
+    updateLangBtn();
+    updateUploadHint();
+    refreshUI();
+    document.getElementById('langMenu').classList.remove('show');
+}
+
+function updateLangBtn() {
+    var btn = document.getElementById('langBtn');
+    if (btn) btn.textContent = LANG_LABELS[lang];
+    // Highlight active item
+    document.querySelectorAll('.lang-menu-item').forEach(function(el) {
+        el.classList.toggle('active', el.dataset.lang === lang);
+    });
+}
+
+// Click outside to close dropdown
+document.addEventListener('click', function(e) {
+    var menu = document.getElementById('langMenu');
+    var btn = document.getElementById('langBtn');
+    if (menu && !menu.contains(e.target) && !btn.contains(e.target)) {
+        menu.classList.remove('show');
+    }
+});
+
+function applyI18n() {
+    document.querySelectorAll('[data-i18n]').forEach(function(el) {
+        var k = el.dataset.i18n;
+        if (k) el.textContent = t(k);
+    });
+    document.querySelectorAll('[data-i18n-title]').forEach(function(el) {
+        var k = el.dataset.i18nTitle;
+        if (k) el.title = t(k);
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+        var k = el.dataset.i18nPlaceholder;
+        if (k) el.placeholder = t(k);
+    });
+    document.title = t('title');
+}
+
+function refreshUI() {
+    buildCatBar('catBar');
+    buildCatBar('uploadCatBar');
+    if (viewMode === 'files') loadFiles();
+}
+
+// ==================== Auth & Navigation ====================
+var authToken = localStorage.getItem('fs_token') || '';
+var authUser = localStorage.getItem('fs_user') || '';
+var authRole = localStorage.getItem('fs_role') || '';
+var authNick = localStorage.getItem('fs_nick') || '';
+var authMode = 'login'; // login | register
+var viewMode = 'files'; // files | upload
+
+function showLogin() {
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('appScreen').classList.remove('active');
+    applyI18n();  // ensure login screen shows correct language
+}
+
+function showApp() {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appScreen').classList.add('active');
+    document.getElementById('userDisplay').textContent = authNick || authUser || t('anonymous');
+    // Show admin link if admin
+    var adminLink = document.getElementById('adminLink');
+    if (adminLink) adminLink.style.display = authRole === 'admin' ? 'inline' : 'none';
+    if (viewMode === 'files') goFiles();
+    else if (viewMode === 'admin') goAdmin();
+    else goUpload();
+}
+
+function switchAuthMode() {
+    authMode = authMode === 'login' ? 'register' : 'login';
+    document.getElementById('loginSubmitBtn').textContent = authMode === 'login' ? t('login') : t('register');
+    document.getElementById('loginSwitch').textContent = authMode === 'login' ? t('no_account') : t('has_account');
+    document.querySelector('.sub').textContent = authMode === 'login' ? t('login_sub') : t('register_sub');
+    document.getElementById('loginError').style.display = 'none';
+    document.getElementById('loginNickRow').style.display = authMode === 'register' ? 'block' : 'none';
+}
+
+function skipLogin() {
+    authToken = ''; authUser = ''; authRole = ''; showApp();
+}
+
+async function doAuth() {
+    var u = document.getElementById('loginUser').value.trim();
+    var p = document.getElementById('loginPass').value.trim();
+    var errEl = document.getElementById('loginError');
+
+    if (!u || !p) { errEl.textContent = t('fill_fields') || 'Fill all fields'; errEl.style.display = 'block'; return; }
+
+    var body = {username: u, password: p};
+    if (authMode === 'register') {
+        var nick = document.getElementById('loginNick').value.trim();
+        if (nick) body.nickname = nick;
+    }
+
+    var url = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+    try {
+        var res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        var data = await res.json();
+        if (data.ok && data.token) {
+            authToken = data.token;
+            authUser = u;
+            authRole = data.role || '';
+            authNick = data.nickname || '';
+            localStorage.setItem('fs_token', authToken);
+            localStorage.setItem('fs_user', authUser);
+            localStorage.setItem('fs_role', authRole);
+            localStorage.setItem('fs_nick', authNick);
+            viewMode = 'files';
+            localStorage.setItem('fs_view', viewMode);
+            showApp();
+            if (authRole === 'admin') startPendingPoll();
+        } else if (data.ok && !data.token) {
+            // Registration submitted, pending approval
+            errEl.textContent = t('pending_approval') || 'Registration submitted, pending admin approval';
+            errEl.style.color = 'var(--green)';
+            errEl.style.display = 'block';
+            document.getElementById('loginUser').value = '';
+            document.getElementById('loginPass').value = '';
+            switchAuthMode(); // Switch back to login mode
+            document.getElementById('loginSubmitBtn').textContent = t('login');
+            document.getElementById('loginSwitch').textContent = t('no_account');
+            document.querySelector('.sub').textContent = t('login_sub');
+            authMode = 'login';
+        } else {
+            errEl.textContent = data.message || data.detail || 'Error';
+            errEl.style.color = 'var(--danger)';
+            errEl.style.display = 'block';
+        }
+    } catch(e) {
+        errEl.textContent = t('net_error') || 'Network error';
+        errEl.style.display = 'block';
+    }
+}
+
+function doLogout() {
+    authToken = ''; authUser = ''; authRole = ''; authNick = '';
+    localStorage.removeItem('fs_token');
+    localStorage.removeItem('fs_user');
+    localStorage.removeItem('fs_role');
+    localStorage.removeItem('fs_nick');
+    viewMode = 'files';
+    stopPendingPoll();
+    showLogin();
+}
+
+// Enter key on login
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') {
+        doAuth();
+    }
+});
+
+function getAuthHeaders() {
+    return authToken ? {'Authorization': 'Bearer ' + authToken} : {};
+}
+
+// ==================== Pending approval poll (admin) ====================
+var pendingTimer = null;
+
+async function checkPending() {
+    if (authRole !== 'admin') return;
+    try {
+        var res = await fetch('/api/admin/pending', { headers: getAuthHeaders() });
+        if (!res.ok) return;
+        var data = await res.json();
+        var bar = document.getElementById('pendingBar');
+        if (!bar) return;
+        if (data.count > 0) {
+            bar.classList.add('show');
+            document.getElementById('pendingCount').textContent =
+                (t('pending_alert') || 'New approvals') + ': ' + data.count;
+            var names = data.users.map(function(u) { return u.username; }).join(', ');
+            document.getElementById('pendingUsers').textContent = names;
+        } else {
+            bar.classList.remove('show');
+        }
+    } catch(e) {}
+}
+
+function startPendingPoll() {
+    if (authRole !== 'admin') return;
+    checkPending();
+    if (pendingTimer) clearInterval(pendingTimer);
+    pendingTimer = setInterval(checkPending, 30000); // every 30s
+}
+
+function stopPendingPoll() {
+    if (pendingTimer) { clearInterval(pendingTimer); pendingTimer = null; }
+}
+
+// ==================== View navigation ====================
+function goUpload() {
+    viewMode = 'upload';
+    localStorage.setItem('fs_view', viewMode);
+    document.getElementById('viewFiles').style.display = 'none';
+    document.getElementById('viewDetail').style.display = 'none';
+    document.getElementById('viewUpload').style.display = 'block';
+    var adminPanel = document.getElementById('viewAdmin');
+    if (adminPanel) adminPanel.style.display = 'none';
+    updateUploadHint();
+    buildCatBar('uploadCatBar');
+}
+
+function goFiles() {
+    viewMode = 'files';
+    localStorage.setItem('fs_view', viewMode);
+    document.getElementById('viewFiles').style.display = 'block';
+    document.getElementById('viewUpload').style.display = 'none';
+    document.getElementById('viewDetail').style.display = 'none';
+    var adminPanel = document.getElementById('viewAdmin');
+    if (adminPanel) adminPanel.style.display = 'none';
+    buildCatBar('catBar');
+    loadFiles();
+}
+
+function goAdmin() {
+    viewMode = 'admin';
+    localStorage.setItem('fs_view', viewMode);
+    document.getElementById('viewFiles').style.display = 'none';
+    document.getElementById('viewUpload').style.display = 'none';
+    var adminPanel = document.getElementById('viewAdmin');
+    if (adminPanel) adminPanel.style.display = 'block';
+    loadAdminUsers();
+}
+
+async function loadAdminUsers() {
+    var list = document.getElementById('adminUserList');
+    if (!list) return;
+    try {
+        var res = await fetch('/api/admin/users', { headers: getAuthHeaders() });
+        if (!res.ok) { list.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>'; return; }
+        var data = await res.json();
+        if (!data.users || !data.users.length) {
+            list.innerHTML = '<div class="empty">' + (t('no_users') || 'No users') + '</div>';
+            return;
+        }
+        var html = '<div style="display:grid;grid-template-columns:1fr 1fr auto auto auto auto;gap:4px 8px;align-items:center;padding:6px 12px;font-size:11px;color:var(--dim);margin-bottom:4px">' +
+            '<span>' + (t('username_ph') || 'Username') + '</span>' +
+            '<span>' + (t('password_label') || 'Password') + '</span>' +
+            '<span>' + (t('role_label') || 'Role') + '</span>' +
+            '<span>' + (t('status_label') || 'Status') + '</span>' +
+            '<span></span><span></span>' +
+            '</div>';
+        data.users.forEach(function(u) {
+            var badge = u.role === 'admin' ? ' <span class="badge badge-admin">admin</span>' : '';
+            var statusBadge = '';
+            if (u.status === 'pending') {
+                statusBadge = '<span class="badge badge-pending">' + (t('pending') || 'pending') + '</span>';
+            } else if (u.status === 'active') {
+                statusBadge = '<span class="badge badge-active">' + (t('active') || 'active') + '</span>';
+            } else {
+                statusBadge = '<span style="font-size:10px;color:var(--dim)">' + u.status + '</span>';
+            }
+            // Show masked password with toggle
+            var pwDisplay = '<span style="font-size:10px;color:var(--dim);cursor:pointer" title="' + t('click_show_pw') + '" onclick="togglePw(this,\'' + u.password.replace(/'/g,"\\'") + '\')">●●●●●●●●</span>';
+            var nickname = u.nickname || u.username;
+            var nameDisplay = '<span style="font-size:13px">' + nickname + ' <span style="font-size:10px;color:var(--dim)">@' + u.username + '</span>' + badge + '</span>';
+
+            var actions = '';
+            // approve/reject for pending users
+            if (u.status === 'pending') {
+                actions = '<button class="btn btn-xs" onclick="approveUser(' + u.id + ')" style="color:var(--green);border-color:var(--green)">' + (t('approve') || 'Approve') + '</button>';
+            }
+            html += '<div class="file-card">' +
+                '<div>' + nameDisplay + ' ' + statusBadge + '</div>' +
+                '<div>' + pwDisplay + '</div>' +
+                '<div style="font-size:11px">' + u.role + '</div>' +
+                '<div style="font-size:11px;color:var(--dim)">' + (u.created_at || '') + '</div>' +
+                '<button class="btn btn-xs" onclick="openEditUserModal(' + u.id + ',\'' + u.username.replace(/'/g,"\\'") + '\',\'' + (u.nickname || '').replace(/'/g,"\\'") + '\',\'' + u.role + '\',\'' + u.status + '\')">' + (t('btn_edit') || 'Edit') + '</button>' +
+                '<button class="btn btn-xs btn-danger" onclick="deleteUser(' + u.id + ',\'' + u.username.replace(/'/g,"\\'") + '\')">' + (t('btn_del') || 'Del') + '</button>' +
+                actions +
+            '</div>';
+        });
+        list.innerHTML = html;
+    } catch(e) {
+        list.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
+    }
+}
+
+async function approveUser(id) {
+    var res = await fetch('/api/admin/users/' + id + '/approve', { method: 'PUT', headers: getAuthHeaders() });
+    var data = await res.json();
+    if (data.ok) { toast(data.message || 'OK'); loadAdminUsers(); checkPending(); }
+    else { toast((data.detail || data.message || t('toast_failed')), true); }
+}
+
+async function deleteUser(id, username) {
+    if (!confirm((t('confirm_del_file') || 'Delete') + ' ' + username + '?')) return;
+    var res = await fetch('/api/admin/users/' + id, { method: 'DELETE', headers: getAuthHeaders() });
+    var data = await res.json();
+    if (data.ok) { toast(data.message || 'OK'); loadAdminUsers(); checkPending(); }
+    else { toast((data.detail || data.message || t('toast_failed')), true); }
+}
+
+// ==================== Modal: Add / Edit User ====================
+var editingUserId = null;
+
+function togglePw(el, hash) {
+    if (el.textContent === '●●●●●●●●') {
+        el.textContent = hash.substring(0, 24) + '...';
+        el.title = hash;
+    } else {
+        el.textContent = '●●●●●●●●';
+        el.title = t('click_show_pw') || 'Click to show';
+    }
+}
+
+function openAddUserModal() {
+    editingUserId = null;
+    document.getElementById('userModalTitle').textContent = t('modal_add_title') || 'Add User';
+    document.getElementById('modalUser').value = '';
+    document.getElementById('modalPass').value = '';
+    document.getElementById('modalNick').value = '';
+    document.getElementById('modalRole').value = 'user';
+    document.getElementById('modalStatus').value = 'active';
+    document.getElementById('modalSaveBtn').textContent = t('btn_save') || 'Save';
+    document.getElementById('userModal').classList.add('show');
+}
+
+function openEditUserModal(id, username, nickname, role, status) {
+    editingUserId = id;
+    document.getElementById('userModalTitle').textContent = t('modal_edit_title') || 'Edit User';
+    document.getElementById('modalUser').value = username;
+    document.getElementById('modalPass').value = '';
+    document.getElementById('modalPass').placeholder = '留空则不修改密码';
+    document.getElementById('modalNick').value = nickname || '';
+    document.getElementById('modalRole').value = role || 'user';
+    document.getElementById('modalStatus').value = status || 'active';
+    document.getElementById('modalSaveBtn').textContent = t('btn_save') || 'Save';
+    document.getElementById('userModal').classList.add('show');
+}
+
+function closeUserModal() {
+    document.getElementById('userModal').classList.remove('show');
+    editingUserId = null;
+    document.getElementById('modalPass').placeholder = t('password_ph');
+}
+
+async function saveUser() {
+    var username = document.getElementById('modalUser').value.trim();
+    var password = document.getElementById('modalPass').value.trim();
+    var nickname = document.getElementById('modalNick').value.trim();
+    var role = document.getElementById('modalRole').value;
+    var status = document.getElementById('modalStatus').value;
+
+    if (!username) { toast(t('fill_fields') || 'Fill all fields', true); return; }
+
+    var body = { username: username, password: password, nickname: nickname, role: role, status: status };
+    var url, method;
+    if (editingUserId) {
+        url = '/api/admin/users/' + editingUserId;
+        method = 'PUT';
+        if (!password) body.password = ''; // keep existing
+    } else {
+        url = '/api/admin/users';
+        method = 'POST';
+        if (!password) { toast('Password required', true); return; }
+    }
+
+    var res = await fetch(url, { method: method, headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()), body: JSON.stringify(body) });
+    var data = await res.json();
+    if (data.ok) { toast(data.message || 'OK'); closeUserModal(); loadAdminUsers(); checkPending(); }
+    else { toast((data.detail || data.message || t('toast_failed')), true); }
+}
+
+// Click outside modal to close
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'userModal') closeUserModal();
+});
+
+// ==================== Core functions ====================
+var activeCat = 'auto';
+var dropZone = document.getElementById('dropZone');
+var fileInput = document.getElementById('fileInput');
+var fileList = document.getElementById('fileList');
+var uploadHint = document.getElementById('uploadHint');
+
+function buildCatBar(containerId) {
+    var bar = document.getElementById(containerId);
+    if (!bar) return;
+    fetch('/api/categories').then(function(res) { return res.json(); }).then(function(data) {
+        var total = data.categories.reduce(function(s, c) { return s + c.count; }, 0);
+        var totalHtml = total ? '<span class="count">' + total + '</span>' : '';
+        bar.innerHTML =
+            '<span class="cat-tag auto ' + (activeCat==='auto'?'active':'') + '" data-cat="auto" onclick="selectCategory(\'auto\')">' +
+                t('auto_tag') + totalHtml +
+            '</span>' +
+            data.categories.map(function(c) {
+                return '<span class="cat-tag ' + (activeCat===c.category?'active':'') + '" data-cat="' + c.category + '" onclick="selectCategory(\'' + c.category + '\')">' +
+                    c.category + '<span class="count">' + c.count + '</span>' +
+                    '<span class="cat-del" title="' + t('del_title') + '" onclick="delCat(event,\'' + c.category + '\')">✕</span>' +
+                '</span>';
+            }).join('') +
+            '<span class="cat-new" onclick="newCategory()">' + t('new_tag') + '</span>';
+    });
+}
+
+function selectCategory(cat) {
+    activeCat = cat;
+    updateUploadHint();
+    buildCatBar('catBar');
+    buildCatBar('uploadCatBar');
+    if (viewMode === 'files') loadFiles();
+}
+
+async function newCategory() {
+    var name = prompt(t('prompt_cat'));
+    if (!name || !name.trim()) return;
+    activeCat = name.trim();
+    buildCatBar('catBar');
+    buildCatBar('uploadCatBar');
+    if (viewMode === 'files') loadFiles();
+    updateUploadHint();
+}
+
+async function delCat(e, cat) {
+    e.stopPropagation();
+    if (!confirm(t('confirm_del_cat') + cat + t('and_all_files'))) return;
+    var res = await fetch('/api/categories/' + encodeURIComponent(cat), { method: 'DELETE' });
+    if (res.ok) {
+        if (activeCat === cat) activeCat = 'auto';
+        toast(t('toast_deleted'));
+        buildCatBar('catBar');
+        buildCatBar('uploadCatBar');
+        if (viewMode === 'files') loadFiles();
+        updateUploadHint();
+    } else { toast(t('toast_del_failed'), true); }
+}
+
+function updateUploadHint() {
+    if (!uploadHint) return;
+    if (activeCat === 'auto') {
+        uploadHint.textContent = t('hint_auto');
+        uploadHint.style.background = 'rgba(163,113,247,.15)';
+        uploadHint.style.color = '#a371f7';
+    } else {
+        uploadHint.textContent = t('hint_target') + activeCat;
+        uploadHint.style.background = 'rgba(88,166,255,.15)';
+        uploadHint.style.color = '#58a6ff';
+    }
+}
+
+// Upload
+if (dropZone) {
+    dropZone.addEventListener('click', function() { fileInput.click(); });
+    fileInput.addEventListener('change', function() { uploadFiles(fileInput.files); });
+    ['dragenter','dragover'].forEach(function(e) { dropZone.addEventListener(e, function(ev) {
+        ev.preventDefault(); dropZone.classList.add('dragover');
+    }); });
+    ['dragleave','drop'].forEach(function(e) { dropZone.addEventListener(e, function(ev) {
+        ev.preventDefault(); dropZone.classList.remove('dragover');
+    }); });
+    dropZone.addEventListener('drop', function(ev) { uploadFiles(ev.dataTransfer.files); });
+}
+
+async function uploadFiles(files) {
+    if (!files.length) return;
+    var cat = activeCat || 'auto';
+    var formData = new FormData();
+    formData.append('category', cat);
+    for (var i = 0; i < files.length; i++) formData.append('files', files[i]);
+
+    var url = files.length > 1 ? '/api/upload/multiple' : '/api/upload';
+    if (files.length === 1) {
+        formData.delete('files');
+        formData.append('file', files[0]);
+    }
+
+    var headers = getAuthHeaders();
+    var res = await fetch(url, { method: 'POST', body: formData, headers: headers });
+    if (res.ok) {
+        toast(t('toast_upload_ok') + (cat === 'auto' ? t('auto_label') : cat));
+        buildCatBar('catBar');
+        buildCatBar('uploadCatBar');
+        goFiles();
+    } else { toast(t('toast_upload_fail'), true); }
+    fileInput.value = '';
+}
+
+// File list
+var PREVIEW_ICONS = {
+    '图片': '\ud83d\uddbc\ufe0f', '文档': '\ud83d\udcc4', '视频': '\ud83c\udfa5',
+    '音频': '\ud83c\udfb5', '压缩包': '\ud83d\udce6', '代码': '\ud83d\udcbb',
+    '安装包': '\ud83d\udce6', '其他': '\ud83d\udcc1'
+};
+var IMAGE_EXTS = ['.jpg','.jpeg','.png','.gif','.webp','.bmp','.svg','.ico'];
+
+function getPreviewHtml(f) {
+    var ext = '.' + f.filename.split('.').pop().toLowerCase();
+    if (IMAGE_EXTS.indexOf(ext) >= 0) {
+        return '<div class="file-preview"><img src="/api/download/' + encodeURIComponent(f.path) + '" loading="lazy" onerror="this.parentElement.innerHTML=\'' + (PREVIEW_ICONS[f.category] || '\ud83d\udcc1') + '\'"></div>';
+    }
+    return '<div class="file-preview">' + (PREVIEW_ICONS[f.category] || '\ud83d\udcc1') + '</div>';
+}
+
+var currentDetailFile = null;
+
+function showFileDetail(f) {
+    currentDetailFile = f;
+    viewMode = 'detail';
+    document.getElementById('viewFiles').style.display = 'none';
+    document.getElementById('viewUpload').style.display = 'none';
+    document.getElementById('viewDetail').style.display = 'block';
+    var adminPanel = document.getElementById('viewAdmin');
+    if (adminPanel) adminPanel.style.display = 'none';
+
+    var ext = '.' + f.filename.split('.').pop().toLowerCase();
+    var isImage = IMAGE_EXTS.indexOf(ext) >= 0;
+    var preview = isImage
+        ? '<img src="/api/download/' + encodeURIComponent(f.path) + '" onerror="this.parentElement.innerHTML=\'<span class=icon>' + (PREVIEW_ICONS[f.category] || '\ud83d\udcc1') + '</span>\'">'
+        : '<span class="icon">' + (PREVIEW_ICONS[f.category] || '\ud83d\udcc1') + '</span>';
+
+    document.getElementById('detailContent').innerHTML =
+        '<div class="detail-preview">' + preview + '</div>' +
+        '<div class="detail-info">' +
+            '<div class="label">' + (t('detail_name') || 'Filename') + '</div><div class="value">' + f.filename + '</div>' +
+            '<div class="label">' + (t('detail_category') || 'Category') + '</div><div class="value">' + f.category + '</div>' +
+            '<div class="label">' + (t('detail_path') || 'Path') + '</div><div class="value">' + f.path + '</div>' +
+            '<div class="label">' + (t('detail_size') || 'Size') + '</div><div class="value">' + f.size_human + ' (' + (f.size || 0) + ' bytes)</div>' +
+            '<div class="label">' + (t('detail_uploader') || 'Uploader') + '</div><div class="value">' + (f.uploaded_by || 'anonymous') + '</div>' +
+            '<div class="label">' + (t('detail_ip') || 'IP') + '</div><div class="value">' + (f.uploaded_ip || '-') + '</div>' +
+            '<div class="label">' + (t('detail_time') || 'Time') + '</div><div class="value">' + (f.uploaded_at || '-') + '</div>' +
+        '</div>' +
+        '<div class="detail-actions">' +
+            '<a class="btn" href="/api/download/' + encodeURIComponent(f.path) + '" download>' + t('btn_dl') + '</a>' +
+            '<button class="btn btn-danger" onclick="delFileFromDetail()">' + t('btn_del') + '</button>' +
+        '</div>';
+}
+
+async function delFileFromDetail() {
+    if (!currentDetailFile) return;
+    var f = currentDetailFile;
+    if (!confirm(t('confirm_del_file') + f.path + '\"?')) return;
+    var res = await fetch('/api/files/' + encodeURIComponent(f.path), { method: 'DELETE' });
+    if (res.ok) { toast(t('toast_deleted')); goFiles(); }
+    else toast(t('toast_del_failed'), true);
+}
+
+async function loadFiles() {
+    var url = (activeCat && activeCat !== 'auto')
+        ? '/api/files?category=' + encodeURIComponent(activeCat)
+        : '/api/files';
+    var res = await fetch(url);
+    var data = await res.json();
+
+    document.getElementById('listTitle').textContent =
+        (activeCat && activeCat !== 'auto')
+            ? t('cat_label') + activeCat + ' (' + data.files.length + ')'
+            : t('all_files') + ' (' + data.files.length + ')';
+
+    if (!data.files.length) {
+        fileList.innerHTML = '<div class="empty">' + t('no_files') + '</div>';
+        return;
+    }
+    var showCat = !activeCat || activeCat === 'auto';
+    var html = '';
+    data.files.forEach(function(f) {
+        var by = f.uploaded_by === 'anonymous' ? t('anonymous') : f.uploaded_by;
+        var preview = getPreviewHtml(f);
+        html += '<div class="file-card" style="cursor:pointer" onclick="showFileDetail({filename:\'' +
+            f.filename.replace(/'/g, "\\'") + '\',category:\'' + f.category.replace(/'/g, "\\'") +
+            '\',path:\'' + f.path.replace(/'/g, "\\'") + '\',size:' + (f.size || 0) + ',size_human:\'' +
+            f.size_human + '\',uploaded_by:\'' + (f.uploaded_by || 'anonymous').replace(/'/g, "\\'") +
+            '\',uploaded_ip:\'' + (f.uploaded_ip || '').replace(/'/g, "\\'") +
+            '\',uploaded_at:\'' + (f.uploaded_at || '') + '\'})">' +
+            preview +
+            '<span class="file-name" title="' + f.path + '">' + f.filename + '</span>' +
+            (showCat ? '<span class="file-cat" onclick="event.stopPropagation();selectCategory(\'' + f.category + '\')" title="' + t('view_cat') + '">' + f.category + '</span>' : '') +
+            '<span class="file-uploader" title="IP: ' + (f.uploaded_ip || '-') + '">' + by + '</span>' +
+            '<span class="file-meta">' + f.size_human + '</span>' +
+            '<a class="btn btn-xs" href="/api/download/' + encodeURIComponent(f.path) + '" download>' + t('btn_dl') + '</a>' +
+            '<button class="btn btn-xs btn-danger" onclick="delFile(\'' + f.path + '\')">' + t('btn_del') + '</button>' +
+        '</div>';
+    });
+    fileList.innerHTML = html;
+}
+
+async function delFile(path) {
+    if (!confirm(t('confirm_del_file') + path + '\"?')) return;
+    var res = await fetch('/api/files/' + encodeURIComponent(path), { method: 'DELETE' });
+    if (res.ok) { toast(t('toast_deleted')); buildCatBar('catBar'); buildCatBar('uploadCatBar'); loadFiles(); }
+    else toast(t('toast_del_failed'), true);
+}
+
+async function organizeRoot() {
+    if (!confirm(t('confirm_organize'))) return;
+    var res = await fetch('/api/organize', { method: 'POST' });
+    var data = await res.json();
+    if (data.ok) {
+        toast(t('toast_organized') + data.moved + t('files_suffix'));
+        buildCatBar('catBar');
+        buildCatBar('uploadCatBar');
+        if (viewMode === 'files') loadFiles();
+    } else { toast(data.message || t('toast_organize_fail'), true); }
+}
+
+function toast(msg, err) {
+    var el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    if (err) el.style.borderColor = 'var(--danger)';
+    document.body.appendChild(el);
+    setTimeout(function() { el.remove(); }, 2500);
+}
+
+// Init
+applyI18n();
+updateLangBtn();
+
+// Auto-login or show login (must be after i18n init)
+if (authToken) {
+    viewMode = localStorage.getItem('fs_view') || 'files';
+    showApp();
+    if (authRole === 'admin') startPendingPoll();
+} else { showLogin(); }
+
+updateUploadHint();
+buildCatBar('catBar');
+if (authToken) { buildCatBar('uploadCatBar'); loadFiles(); }
+</script>
+</body>
+</html>

@@ -2,10 +2,10 @@
 """File business logic (ARCH-6).
 
 Pure-ish helpers for upload validation, physical persistence and DB-record
-creation. The route handlers in :mod:`app.files` still own request parsing,
-permission checks and response shaping, but delegate the actual file/record
-work here. Keeping ``_insert_file_record`` commit-free lets callers batch a
-multi-upload into one transaction (ARCH-7 atomicity).
+creation. The route handlers in :mod:`modules.files.files` still own request
+parsing, permission checks and response shaping, but delegate the actual
+file/record work here. Keeping ``_insert_file_record`` commit-free lets callers
+batch a multi-upload into one transaction (ARCH-7 atomicity).
 """
 
 import shutil
@@ -15,8 +15,8 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-import app.config as _cfg
-from app.database import File as FileModel
+import modules.user.config as _cfg
+from modules.user.database import File as FileModel
 
 
 def validate_upload(filename: str, size: int) -> None:

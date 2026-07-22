@@ -10,10 +10,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.config import UPLOAD_DIR
-from app.database import File as FileModel
-from app.database import SessionLocal, init_db
-from app.main import app
+from modules.user.config import UPLOAD_DIR
+from modules.user.database import File as FileModel
+from modules.user.database import SessionLocal, init_db
+from modules.combined import app
 
 init_db()
 client = TestClient(app)

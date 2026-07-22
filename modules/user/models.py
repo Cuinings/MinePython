@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Pydantic request/response models."""
+"""Pydantic 请求/响应模型（全模块共享）。"""
 
 from pydantic import BaseModel, ConfigDict
 

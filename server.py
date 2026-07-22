@@ -1,27 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-File Server v4.2 — thin entry point.
+MinePython v4.6 — thin entry point.
 http://localhost:8000 for Web UI, /docs for Swagger.
 
-All application logic lives in the app/ package:
-  app/config.py      — constants, paths, extension mapping
-  app/database.py    — SQLite connection, schema init & migration
-  app/models.py      — Pydantic request/response models
-  app/utils.py       — password hashing, file categorization, formatting
-  app/auth.py        — login/register endpoints, auth helpers
-  app/admin.py       — admin user CRUD, approval, pending count
-  app/files.py       — file list, upload, download, delete
-  app/categories.py  — category list, delete, organize
-  app/main.py        — FastAPI app assembly, CORS, Web UI
+All application logic now lives in the modules/ package:
+  modules/user/       — 基座：配置、数据库、RBAC、认证、用户/管理员控制台
+  modules/files/      — 文件服务器：上传/下载/管理、分类整理、孤儿清理
+  modules/audit/      — 审计模块：审计日志查询
+  modules/apidocs/    — API 文档门户
+  modules/combined.py — 把四个模块挂到同一个应用（端口 8000）
 """
+
+from modules.combined import app
 
 if __name__ == "__main__":
     import uvicorn
     from sqlalchemy import func, select
 
-    from app.config import DB_PATH, UPLOAD_DIR, HOST, PORT
-    from app.database import File, SessionLocal, User, init_db
-    from app.logging_config import setup_logging
+    from modules.user.config import DB_PATH, UPLOAD_DIR, HOST, PORT
+    from modules.user.database import File, SessionLocal, User, init_db
+    from modules.user.logging_config import setup_logging
 
     # Configure logging (rotating JSON file + console) before uvicorn starts.
     # uvicorn is told NOT to install its own logging config / access logger so
@@ -35,7 +33,7 @@ if __name__ == "__main__":
         user_count = db.scalar(select(func.count()).select_from(User)) or 0
         file_count = db.scalar(select(func.count()).select_from(File)) or 0
 
-    print(f"\n  File Server v4.6")
+    print(f"\n  MinePython v4.6")
     print(f"  {'-' * 30}")
     print(f"  Web UI:     http://localhost:8000")
     print(f"  API Home:   http://localhost:8000/api")
@@ -47,10 +45,10 @@ if __name__ == "__main__":
     print(f"  {'-' * 30}\n")
 
     uvicorn.run(
-        "app.main:app",
+        "modules.combined:app",
         host=HOST,
         port=PORT,
         reload=False,
-        log_config=None,   # we own logging (see app.logging_config)
+        log_config=None,   # we own logging (see modules.user.logging_config)
         access_log=False,  # our request middleware logs access structurally
     )

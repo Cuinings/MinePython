@@ -1,26 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-Centralized, structured, rotating logging configuration for the File Server.
+用户模块集中式、结构化、滚动日志配置。
 
-Design
+设计
 ------
-* **File handler** (`logs/app.log`) emits one JSON object per line (machine
-  readable, ready for Loki / ELK) and rotates by size, keeping a configurable
-  number of backups. This satisfies the "log rotation" requirement.
-* **Console handler** (`stdout`) emits a human-readable format for local dev
-  and `docker logs` / shell-redirect convenience.
-* A **secret-redaction filter** scrubs accidental `key=value` secret leakage
-  (password/token/authorization/api_key/fernet_key/...) so secrets never land
-  in any log file — defense in depth on top of the existing clean call sites.
-* All third-party loggers (uvicorn, sqlalchemy, ...) keep their default
-  `propagate=True` and inherit these root handlers. The app disables uvicorn's
-  own access logging and relies on the request middleware for structured
-  access logs.
+* **File handler** (`logs/app.log`) 每行输出一个 JSON 对象（机器可读，可直接接入
+  Loki / ELK），并按大小滚动、保留可配置份数备份。满足“日志滚动”需求。
+* **Console handler** (`stdout`) 输出人类可读格式，便于本地开发与 `docker logs`
+  / shell 重定向查看。
+* **密钥脱敏过滤器** 擦除意外写入的 `key=value` 格式密钥（password/token/...），
+  确保密钥永不落盘——在既有干净调用点之上再做一层纵深防御。
+* 所有第三方 logger（uvicorn、sqlalchemy 等）继承这些 root handler。应用关闭
+  uvicorn 自带 access 日志，改由请求中间件输出结构化访问日志。
 
-Audit events (DB-backed, in `audit_log`) are intentionally separate from these
-operational logs.
+数据库审计（DB-backed，位于 `audit_log`）与这些运维日志相互独立。
 
-Call :func:`setup_logging` exactly once at process startup; it is idempotent.
+在进程启动时调用一次 :func:`setup_logging`；它是幂等的。
 """
 
 import json
@@ -31,9 +26,9 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-# All env knobs are read once, centrally, in app.config (ARCH-8). This module
-# only consumes the already-resolved values so there is a single source of truth.
-from app.config import (
+# 所有 env 开关在 modules/user/config 中集中读取一次（ARCH-8）。本模块只消费
+# 已解析的值，保证单一事实来源。
+from modules.user.config import (
     LOG_BACKUPS as _LOG_BACKUPS,
     LOG_DIR as _LOG_DIR,
     LOG_FILE_NAME as _LOG_FILE_NAME,

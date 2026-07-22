@@ -4,10 +4,10 @@
 Everything in here is HTTP-agnostic: token minting, expiry evaluation, session
 invalidation, expired-token purging, and the in-memory login brute-force
 state. The FastAPI ``Depends``/``Header`` helpers (``get_current_user``,
-``require_permission`` …) stay in :mod:`app.auth` because they are part of the
-HTTP layer; they call into this module. Symbols reused by other routers
+``require_permission`` …) stay in :mod:`modules.user.auth` because they are part
+of the HTTP layer; they call into this module. Symbols reused by other routers
 (``authenticate_token``, ``purge_expired_tokens``) are re-exported from
-``app.auth`` for backward compatibility.
+``modules.user.auth`` for backward compatibility.
 """
 
 import secrets
@@ -18,9 +18,15 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
-import app.config as _cfg
-from app.database import SessionLocal, SessionToken, User, get_permissions_for_role, orm_to_dict
-from app.utils import _audit_log, _hash_pw, _is_legacy_hash, _verify_pw
+import modules.user.config as _cfg
+from modules.user.database import (
+    SessionLocal,
+    SessionToken,
+    User,
+    get_permissions_for_role,
+    orm_to_dict,
+)
+from modules.user.utils import _audit_log, _hash_pw, _is_legacy_hash, _verify_pw
 
 
 # ---------------------------------------------------------------------------
@@ -31,9 +37,9 @@ def mint_token(user: User, device: str | None = None) -> str:
     token = secrets.token_hex(32)
     expires_at = ""
     if _cfg.TOKEN_TTL_HOURS and _cfg.TOKEN_TTL_HOURS > 0:
-        expires_at = (datetime.now(timezone.utc) + timedelta(hours=_cfg.TOKEN_TTL_HOURS)).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(hours=_cfg.TOKEN_TTL_HOURS)
+        ).strftime("%Y-%m-%d %H:%M:%S")
     with SessionLocal() as db:
         db.add(
             SessionToken(
@@ -116,21 +122,16 @@ def login_user(db: Session, username: str, password: str, ip: str, device: str =
     minting and permission resolution. Raises ``HTTPException`` (401/403/429)
     on failure. Returns the API payload dict on success.
     """
-    # Rate limit 1/2 — per-IP throttle (ARCH-2): reject early if this client
-    # has failed too many times across any usernames within the window.
     ip_wait = ip_throttled(ip)
     if ip_wait > 0:
         raise HTTPException(429, f"操作过于频繁，请于 {ip_wait} 秒后重试")
 
-    # Rate limit 2/2 — per-username lock (P0-3): reject if this account is locked.
     locked = login_locked(username)
     if locked > 0:
         raise HTTPException(429, f"账户已锁定，请于 {locked} 秒后重试")
 
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if not user or not _verify_pw(password, user.password):
-        # Every failure counts toward the IP throttle (even unknown usernames),
-        # but only existing usernames feed the per-account lock (no enumeration).
         register_ip_failure(ip)
         if user is not None:
             rem = register_login_failure(username)
@@ -145,18 +146,14 @@ def login_user(db: Session, username: str, password: str, ip: str, device: str =
     if user.status == "deactivated":
         raise HTTPException(403, "Account has been deactivated")
 
-    # Transparently upgrade legacy SHA-256 hashes to argon2 on successful login.
     if _is_legacy_hash(user.password):
         user.password = _hash_pw(password)
         db.commit()
 
-    # Successful login clears any prior failure/lock tracking (both dimensions).
     clear_login_failures(username)
     clear_ip_failures(ip)
 
-    # Mint an independent token row — does NOT overwrite other active sessions.
     token = mint_token(user, device=device)
-
     _audit_log("login", user.username, user.username, ip)
 
     perms = sorted(get_permissions_for_role(user.role))
@@ -173,13 +170,8 @@ def login_user(db: Session, username: str, password: str, ip: str, device: str =
 
 # ---------------------------------------------------------------------------
 # Login brute-force protection (in-memory, single-process). Two dimensions:
-#   1. Per-username lock (ARCH/P0-3): consecutive failures on an existing
-#      username lock THAT account for _cfg.LOGIN_LOCK_SECONDS. Only existing
-#      usernames are counted, so lock state cannot enumerate valid usernames.
-#   2. Per-IP throttle (ARCH-2): failures from a single client IP within a
-#      sliding window return 429 regardless of which username is targeted, so
-#      one host cannot spray many usernames to dodge the per-account lock.
-# Thresholds are centralized in app.config (ARCH-8) and env-tunable.
+#   1. Per-username lock (ARCH/P0-3)
+#   2. Per-IP throttle (ARCH-2)
 # ---------------------------------------------------------------------------
 _LOGIN_FAILS: dict[str, dict] = {}
 _LOGIN_IP_FAILS: dict[str, dict] = {}
@@ -198,7 +190,6 @@ def register_login_failure(username: str) -> int:
     """Record a failed login; returns seconds left if now locked, else 0."""
     rec = _LOGIN_FAILS.setdefault(username, {"count": 0, "until": 0})
     rec["count"] += 1
-    # Allow exactly _cfg.MAX_LOGIN_FAILS attempts; lock on the next one.
     if rec["count"] > _cfg.MAX_LOGIN_FAILS:
         rec["until"] = time.time() + _cfg.LOGIN_LOCK_SECONDS
         return _cfg.LOGIN_LOCK_SECONDS
@@ -211,10 +202,7 @@ def clear_login_failures(username: str) -> None:
 
 
 def ip_throttled(ip: str) -> int:
-    """Return seconds left until an IP's throttle window clears, or 0.
-
-    The window is sliding: an expired window is dropped so the IP starts fresh.
-    """
+    """Return seconds left until an IP's throttle window clears, or 0."""
     if not ip:
         return 0
     rec = _LOGIN_IP_FAILS.get(ip)

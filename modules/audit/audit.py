@@ -21,8 +21,8 @@ so the UI can render the correct controls without re-deriving permissions.
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy import func, select
 
-from app.auth import get_permissions_for_role, require_permission
-from app.database import AuditLog, get_db, orm_to_dict
+from modules.user.auth import get_permissions_for_role, require_permission
+from modules.user.database import AuditLog, get_db, orm_to_dict
 
 router = APIRouter(prefix="/api/audit", tags=["Audit"])
 

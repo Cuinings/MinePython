@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""API tests for File Server v4.4 (SQLAlchemy + RBAC)."""
+"""API tests for MinePython (SQLAlchemy + RBAC)."""
 
 import sys
 import os
@@ -10,8 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import init_db
-from app.main import app
+from modules.user.database import init_db
+from modules.combined import app
 
 # Make sure tables + RBAC seed exist before any request.
 init_db()

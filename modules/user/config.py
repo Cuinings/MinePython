@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""File Server configuration — loads from .env with sensible defaults."""
+"""用户模块配置 — 加载自 .env，提供合理默认值。
+
+这是整个项目的唯一配置来源（单一事实）。所有模块都从这里读取路径、
+端口、安全与日志等开关。文件服务器 / 审计 / API 文档模块通过
+``modules.user.config`` 复用同一份配置。
+"""
 
 import os
 from pathlib import Path
@@ -7,19 +12,53 @@ from pathlib import Path
 # Auto-load .env if python-dotenv is installed
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent.parent / ".env")
+    load_dotenv(Path(__file__).parent.parent.parent / ".env")
 except ImportError:
     pass  # dotenv is optional
 
+# Fallback: parse .env manually when python-dotenv is unavailable, so that
+# environment configuration (e.g. APP_DEBUG) is honored even without the
+# optional dependency. Only sets variables that aren't already in the env.
+def _load_env_file(path: Path):
+    if not path.exists():
+        return
+    try:
+        with path.open(encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or line.startswith(";"):
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):]
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key, value = key.strip(), value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except OSError:
+        pass
+
+_load_env_file(Path(__file__).parent.parent.parent / ".env")
+
 # ---------- Paths ----------
-UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(Path(__file__).parent.parent.parent / "uploads")))
 UPLOAD_DIR.mkdir(exist_ok=True)
-DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent.parent / "server.db")))
+DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent.parent.parent / "server.db")))
 DEFAULT_CATEGORY = "其他"
 
-# ---------- Server ----------
+# ---------- Server (combined entry) ----------
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
+
+# ---------- Per-module entry ports (单进程模块包：每个模块可独立启动) ----------
+# 四个模块各自独立运行时的端口；合并入口(modules/__main__.py)仍使用 PORT(8000)。
+USER_MODULE_PORT = int(os.getenv("USER_MODULE_PORT", "8001"))
+FILES_MODULE_PORT = int(os.getenv("FILES_MODULE_PORT", "8002"))
+AUDIT_MODULE_PORT = int(os.getenv("AUDIT_MODULE_PORT", "8003"))
+APIDOCS_MODULE_PORT = int(os.getenv("APIDOCS_MODULE_PORT", "8004"))
 
 # ---------- Debug / safe-by-default ----------
 # When False (production), the interactive API docs (/docs, /redoc,
@@ -61,7 +100,7 @@ LOGIN_IP_MAX_FAILS = int(os.getenv("LOGIN_IP_MAX_FAILS", "20"))
 LOGIN_IP_WINDOW_SECONDS = int(os.getenv("LOGIN_IP_WINDOW_SECONDS", "300"))  # 5 min
 
 # ---------- Logging (centralized here; logging_config imports these) ----------
-LOG_DIR = Path(os.getenv("LOG_DIR", str(Path(__file__).parent.parent / "logs")))
+LOG_DIR = Path(os.getenv("LOG_DIR", str(Path(__file__).parent.parent.parent / "logs")))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(10 * 1024 * 1024)))  # ~10 MB
 LOG_BACKUPS = int(os.getenv("LOG_BACKUPS", "5"))

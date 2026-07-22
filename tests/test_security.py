@@ -11,10 +11,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient
 
-import app.auth as auth
-from app.auth import authenticate_token, purge_expired_tokens
-from app.database import SessionLocal, SessionToken, User, init_db
-from app.main import app
+import modules.user.auth as auth
+from modules.user.auth import authenticate_token, purge_expired_tokens
+from modules.user.database import SessionLocal, SessionToken, User, init_db
+from modules.combined import app
 from sqlalchemy import select
 
 init_db()
@@ -49,7 +49,7 @@ def _make_active_user(password: str = "testpass", role: str = "user") -> str:
 # ---------------------------------------------------------------------------
 class TestLoginLockout:
     def test_account_locks_after_threshold(self):
-        from app.config import MAX_LOGIN_FAILS
+        from modules.user.config import MAX_LOGIN_FAILS
 
         uname = _make_active_user(password="rightpass")
         auth._clear_login_failures(uname)
@@ -68,11 +68,11 @@ class TestLoginLockout:
     def test_ip_throttle_helpers(self, monkeypatch):
         """The IP-dimension throttle logic (exercised directly, deterministic).
 
-        The threshold lives in :mod:`app.config` (centralized via ARCH-8); the
+        The threshold lives in :mod:`modules.user.config` (centralized via ARCH-8); the
         service reads it at call time, so we patch the config module, not the
-        re-exported names on :mod:`app.auth`.
+        re-exported names on :mod:`modules.user.auth`.
         """
-        import app.config as _cfg
+        import modules.user.config as _cfg
 
         ip = "203.0.113.7"
         auth._clear_ip_failures(ip)
@@ -143,7 +143,7 @@ class TestTokenExpiry:
 # ---------------------------------------------------------------------------
 class TestBatchDownloadCaps:
     def test_too_many_files_rejected(self):
-        from app.config import MAX_BATCH_DOWNLOAD_FILES
+        from modules.user.config import MAX_BATCH_DOWNLOAD_FILES
         token = _admin_token()
         paths = [f"其他/ghost_{i}.txt" for i in range(MAX_BATCH_DOWNLOAD_FILES + 1)]
         r = client.post("/api/files/batch-download",
@@ -202,9 +202,9 @@ class TestResponseSchemas:
 import asyncio
 import json as _json
 
-import app.config as app_config
+import modules.user.config as app_config
 from fastapi import Request as _Request
-from app.main import global_exception_handler as _global_exc_handler
+from modules.common import global_exception_handler as _global_exc_handler
 
 
 def _fake_request() -> _Request:

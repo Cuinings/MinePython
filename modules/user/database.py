@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Database layer — SQLAlchemy 2.0 ORM.
+"""用户模块数据库层 — SQLAlchemy 2.0 ORM。
 
-Defines engine, session factory, ORM models (User / File / AuditLog + RBAC
-tables) and the initialization / seeding logic. All raw ``sqlite3`` access has
-been replaced by the ORM so that schema, migrations and RBAC seed data live in
-one place.
+定义引擎、会话工厂，以及全部 ORM 模型（User / SessionToken / File /
+AuditLog / ExtCategory / Role / Permission / RolePermission）和初始化与种子
+逻辑。所有原始 ``sqlite3`` 访问已替换为 ORM，使 schema、迁移与 RBAC 种子数据
+集中在一处。
+
+这是整个项目的单一数据基座：文件服务器与审计模块都从这里导入自己的模型
+（``File`` / ``ExtCategory`` / ``AuditLog``），因此本模块被 files / audit 依赖。
 """
 
 from __future__ import annotations
@@ -36,8 +39,8 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.pool import StaticPool
 
-from app.config import ADMIN_NICKNAME, ADMIN_PASSWORD, ADMIN_USERNAME, DB_PATH, UPLOAD_DIR, EXT_CATEGORY
-from app.utils import _hash_pw, _encrypt_plain, _decrypt_plain
+from modules.user.config import ADMIN_NICKNAME, ADMIN_PASSWORD, ADMIN_USERNAME, DB_PATH, UPLOAD_DIR, EXT_CATEGORY
+from modules.user.utils import _hash_pw, _encrypt_plain, _decrypt_plain
 
 log = logging.getLogger("fileserver.db")
 
@@ -161,9 +164,9 @@ class ExtCategory(Base):
     """Extension -> category mapping (P1-4).
 
     DB-backed and CRUD-managed so classification rules are configurable at
-    runtime instead of hardcoded in ``app.config.EXT_CATEGORY``. The
-    in-process cache in :mod:`app.services.category_service` is the hot path;
-    this table is the source of truth and is seeded from ``EXT_CATEGORY``.
+    runtime instead of hardcoded in ``modules.user.config.EXT_CATEGORY``. The
+    in-process cache in :mod:`modules.files.services.category_service` is the hot
+    path; this table is the source of truth and is seeded from ``EXT_CATEGORY``.
     """
 
     __tablename__ = "ext_category"
@@ -356,7 +359,7 @@ def _ensure_alembic_baseline() -> None:
         Base.metadata.create_all(bind=engine)
         return
 
-    root = Path(__file__).parent.parent
+    root = Path(__file__).parent.parent.parent
 
     def _alembic_cfg() -> "Config":
         cfg = Config(str(root / "alembic.ini"))

@@ -1,6 +1,6 @@
-# File Server（文件服务器 v4.4）
+# MinePython
 
-带用户系统的本地文件服务器：提供文件上传 / 下载 / 分类管理的 RESTful API 与 Web 管理界面。后端基于 **FastAPI + SQLAlchemy 2.0 + SQLite（WAL）**，落地 **RBAC 细粒度权限**、**Service 分层**、**Alembic 迁移**与一套**安全基线**（argon2 哈希、明文加密、登录限流、结构化日志）。
+带用户系统的本地文件管理与审计平台 **MinePython**：提供文件上传 / 下载 / 分类管理的 RESTful API 与 Web 管理界面。后端基于 **FastAPI + SQLAlchemy 2.0 + SQLite（WAL）**，落地 **RBAC 细粒度权限**、**Service 分层**、**Alembic 迁移**与一套**安全基线**（argon2 哈希、明文加密、登录限流、结构化日志）。整体代码按四个独立模块（user / files / audit / apidocs）组织于 `modules/` 包。
 
 支持：注册/登录、多角色权限、审批流、文件分类管理、批量操作、审计日志、文件预览，以及中 / 英 / 俄三语 Web 界面与 Swagger 文档。
 
@@ -30,9 +30,9 @@
 - **Web 框架**：FastAPI（ASGI）
 - **ORM / 数据库**：SQLAlchemy 2.0 + SQLite（WAL）；`DATABASE_URL` 可切换（长期项见末节）
 - **分层**：`Client → 中间件 → API(薄路由 + 权限守卫) → Service(业务) → Repository/ORM → Persistence`；认证 / RBAC 横切
-  - `app/services/` 承载业务（auth / file / category / user 四层），路由仅保留 HTTP 层与 `Depends` 权限守卫，避免 Fat Router
+  - `modules/user/services/` 与 `modules/files/services/` 承载业务（auth / file / category / user 四层），路由仅保留 HTTP 层与 `Depends` 权限守卫，避免 Fat Router
 - **会话**：自研 `tokens` 表，签发带 `expires_at` 的 Token（受 `TOKEN_TTL_HOURS` 控制），后台定时清理过期会话
-- **配置**：集中于 `app/config.py`（env 单一入口），支持 CORS、Token、登录限流、批量下载上限、日志等旋钮
+- **配置**：集中于 `modules/user/config.py`（env 单一入口），支持 CORS、Token、登录限流、批量下载上限、日志等旋钮
 - **迁移**：Alembic 跟踪 schema（`Base.metadata` 为单一真源）
 
 ---
@@ -89,24 +89,32 @@ MinePython/
 │   └── versions/
 │       ├── 0001_initial.py    # 基线：7 张业务表
 │       └── 0002_ext_category.py  # 分类映射表（P1-4）
-├── app/                       # 后端包
-│   ├── main.py                # FastAPI 组装 + Web UI 服务 + 中间件
-│   ├── config.py              # 配置常量（env 单一入口）
-│   ├── database.py            # ORM 模型、引擎、会话、迁移、RBAC 种子
-│   ├── models.py              # Pydantic 请求/响应模型
-│   ├── utils.py               # 密码哈希、文件分类委托、大小格式化
-│   ├── auth.py                # 认证路由 + 守卫（get_current_user / require_*）
-│   ├── admin.py               # 管理员：用户 CRUD / 审批 / 审计 / 清理
-│   ├── files.py               # 文件：列表/上传/下载/预览/删除/批量
-│   ├── categories.py          # 分类管理 + 映射 CRUD
-│   ├── audit.py               # 审计日志查看
-│   ├── cleanup.py             # 孤儿文件扫描 / 清理
-│   ├── logging_config.py      # 结构化日志（JSON + 脱敏 + 轮转）
-│   └── services/              # 业务层（HTTP 无关）
-│       ├── auth_service.py
-│       ├── file_service.py
-│       ├── category_service.py
-│       └── user_service.py
+├── modules/                  # 后端包（单进程模块化：四个独立模块）
+│   ├── __init__.py
+│   ├── common.py             # 公共层：FastAPI 工厂、中间件、静态/页面、启动任务
+│   ├── combined.py           # 合并入口：把四模块挂到同一应用（端口 8000）
+│   ├── user/                 # 基座模块：配置、数据库、RBAC、认证、用户/管理员控制台
+│   │   ├── config.py         # 配置常量（env 单一入口）
+│   │   ├── database.py       # ORM 模型、引擎、会话、迁移、RBAC 种子
+│   │   ├── models.py         # Pydantic 请求/响应模型
+│   │   ├── utils.py          # 密码哈希、文件分类、大小格式化
+│   │   ├── auth.py           # 认证路由 + 守卫（get_current_user / require_*）
+│   │   ├── admin.py          # 管理员：用户 CRUD / 审批 / 审计 / 清理
+│   │   ├── logging_config.py # 结构化日志（JSON + 脱敏 + 轮转）
+│   │   └── services/         # 业务层（HTTP 无关）
+│   │       ├── auth_service.py
+│   │       └── user_service.py
+│   ├── files/                # 文件服务器模块（依赖 user）
+│   │   ├── files.py          # 文件：列表/上传/下载/预览/删除/批量
+│   │   ├── categories.py     # 分类管理 + 映射 CRUD
+│   │   ├── cleanup.py        # 孤儿文件扫描 / 清理
+│   │   └── services/         # 业务层
+│   │       ├── file_service.py
+│   │       └── category_service.py
+│   ├── audit/                # 审计模块（依赖 user）
+│   │   └── audit.py          # 审计日志查看
+│   └── apidocs/              # API 文档模块（独立文档门户）
+│       └── __init__.py       # create_apidocs_app()：Swagger / ReDoc / /api 门户
 ├── static/
 │   ├── common.css             # 全局样式
 │   └── js/                    # 前端模块（经典脚本，全局可变状态共享）
@@ -140,7 +148,7 @@ ext_category    (id, extension, category, created_at)   -- 扩展名→分类映
 
 Schema 由 [Alembic](https://alembic.sqlalchemy.org/) 跟踪，不再依赖 `create_all` 硬建表：
 
-- `alembic.ini` + `migrations/env.py` 复用 `app.database` 的 `Base.metadata` 与 `engine`（单一真源），`sqlalchemy.url` 在 `alembic.ini` 中留空、运行时注入。
+- `alembic.ini` + `migrations/env.py` 复用 `modules.user.database` 的 `Base.metadata` 与 `engine`（单一真源），`sqlalchemy.url` 在 `alembic.ini` 中留空、运行时注入。
 - `0001_initial.py` 为基线 migration（7 张业务表 + `alembic_version`）；`0002_ext_category.py` 新增分类映射表。
 - 应用启动（`init_db()`）自动纳管：新库 / 旧库 → `alembic stamp head`；已纳管库 → `alembic upgrade head`（幂等）。Alembic 未安装时回退 `create_all`，应用仍可启动。
 
@@ -157,7 +165,7 @@ alembic upgrade head --sql             # 仅打印将执行的 SQL（离线审�
 
 ## 角色与权限（RBAC）
 
-启动时自动种子化以下角色与权限映射（可在 `app/database.py` 的 `ROLES` / `PERMISSIONS` 中调整）：
+启动时自动种子化以下角色与权限映射（可在 `modules/user/database.py` 的 `ROLES` / `PERMISSIONS` 中调整）：
 
 | 角色 | 权限 |
 |------|------|
@@ -291,7 +299,7 @@ server {
 ```ini
 # /etc/systemd/system/fileserver.service
 [Unit]
-Description=File Server
+Description=MinePython
 After=network.target
 
 [Service]

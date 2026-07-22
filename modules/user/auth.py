@@ -4,21 +4,26 @@ current_user, RBAC guards.
 
 The business logic (token lifecycle, login brute-force state, login
 orchestration, self-service password/deactivate) lives in
-:mod:`app.services.auth_service` and :mod:`app.services.user_service`; this
-module keeps the FastAPI ``Depends``/``Header`` plumbing and the route
-handlers, which now delegate to the services. ``authenticate_token`` and
-``purge_expired_tokens`` are re-exported here so existing imports
-(``app.files``, ``app.main``, tests) keep resolving.
+:mod:`modules.user.services.auth_service` and
+:mod:`modules.user.services.user_service`; this module keeps the FastAPI
+``Depends``/``Header`` plumbing and the route handlers, which delegate to the
+services. ``authenticate_token`` and ``purge_expired_tokens`` are re-exported
+here so existing imports keep resolving.
 """
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from app.database import SessionToken, get_db, get_permissions_for_role
-from app.models import AuthRequest, AuthResponse, DeactivateRequest, PasswordChangeRequest
-from app.services import user_service
-from app.services.auth_service import (
+from modules.user.database import SessionToken, get_db, get_permissions_for_role
+from modules.user.models import (
+    AuthRequest,
+    AuthResponse,
+    DeactivateRequest,
+    PasswordChangeRequest,
+)
+from modules.user.services import user_service
+from modules.user.services.auth_service import (
     authenticate_token,
     clear_ip_failures as _clear_ip_failures,
     clear_login_failures as _clear_login_failures,
@@ -29,7 +34,7 @@ from app.services.auth_service import (
     register_ip_failure as _register_ip_failure,
     register_login_failure as _register_login_failure,
 )
-from app.utils import _audit_log, _client_ip
+from modules.user.utils import _audit_log, _client_ip
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
@@ -96,7 +101,9 @@ def require_permission_allow_anonymous(permission: str):
 # Routes
 # ---------------------------------------------------------------------------
 @router.post("/register", response_model=AuthResponse)
-async def register(body: AuthRequest, db: Session = Depends(get_db), request: Request = None):
+async def register(
+    body: AuthRequest, db: Session = Depends(get_db), request: Request = None
+):
     """Register a new user (pending admin approval). Optionally set nickname."""
     ip = _client_ip(request)
     result = user_service.register_user(db, body.username, body.password, body.nickname, ip)
@@ -104,7 +111,9 @@ async def register(body: AuthRequest, db: Session = Depends(get_db), request: Re
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(body: AuthRequest, db: Session = Depends(get_db), request: Request = None):
+async def login(
+    body: AuthRequest, db: Session = Depends(get_db), request: Request = None
+):
     """Login, mints a fresh independent session token (rejected if pending)."""
     ip = _client_ip(request)
     result = login_user(db, body.username, body.password, ip, device=body.nickname or "")
@@ -124,10 +133,8 @@ async def logout(
     token = authorization[7:].strip() if authorization.startswith("Bearer ") else None
     if not token:
         raise HTTPException(401, "Authentication required")
-    # ARCH-4: use the injected session rather than opening a raw `with SessionLocal()`.
     db.execute(delete(SessionToken).where(SessionToken.token == token))
     db.commit()
-    from app.utils import _audit_log
     _audit_log("logout", user["username"], user["username"], _client_ip(request))
     return {"ok": True, "message": "Logged out"}
 
@@ -159,9 +166,7 @@ async def change_my_password(
     if not user:
         raise HTTPException(401, "Authentication required")
     ip = _client_ip(request)
-    result = user_service.change_password(
-        db, user["id"], body.old_password, body.new_password, ip
-    )
+    result = user_service.change_password(db, user["id"], body.old_password, body.new_password, ip)
     return AuthResponse(**result)
 
 

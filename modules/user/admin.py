@@ -1,35 +1,30 @@
 # -*- coding: utf-8 -*-
 """Admin endpoints: user CRUD, approval, pending count, audit log (RBAC-gated).
 
-The user business logic has moved to :mod:`app.services.user_service`; the
-handlers here do permission guarding + request/response shaping and delegate
+The user business logic has moved to :mod:`modules.user.services.user_service`;
+the handlers here do permission guarding + request/response shaping and delegate
 the actual work to the service.
+
+The orphan-cleanup endpoint (``POST /api/admin/cleanup``) has been relocated to
+the file-server module (:mod:`modules.files.cleanup`) so that this user module
+stays free of any reverse dependency on the files module.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user, require_admin, require_permission
-from app.cleanup import run_cleanup
-from app.database import AuditLog, User, get_db, orm_to_dict
-from app.models import (
+from modules.user.auth import get_current_user, require_admin, require_permission
+from modules.user.database import AuditLog, User, get_db, orm_to_dict
+from modules.user.models import (
     AdminBatchRequest,
     AdminUserRequest,
     AuditListResponse,
     PendingResponse,
     UserListResponse,
 )
-from app.services import user_service
-from app.utils import _audit_log, _client_ip
-
-
-class CleanupRequest(BaseModel):
-    """Request body for the orphan-cleanup endpoint (P1-6)."""
-    dry_run: bool = True
-    target: str = "both"  # "disk" | "db" | "both"
-
+from modules.user.services import user_service
+from modules.user.utils import _audit_log, _client_ip
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -50,9 +45,15 @@ async def admin_pending_count(
     _: dict = Depends(require_permission("user:read")),
 ):
     """Get pending user count and list (requires user:read)."""
-    rows = db.execute(
-        select(User.id, User.username).where(User.status == "pending").order_by(User.id)
-    ).mappings().all()
+    rows = (
+        db.execute(
+            select(User.id, User.username)
+            .where(User.status == "pending")
+            .order_by(User.id)
+        )
+        .mappings()
+        .all()
+    )
     return {"count": len(rows), "users": [dict(r) for r in rows]}
 
 
@@ -138,37 +139,9 @@ async def admin_audit_log(
     limit: int = 100,
 ):
     """Return recent audit-log entries (requires audit:view)."""
-    rows = db.execute(
-        select(AuditLog).order_by(AuditLog.id.desc()).limit(limit)
-    ).scalars().all()
-    return {"logs": [orm_to_dict(r) for r in rows]}
-
-
-# ---------------------------------------------------------------------------
-# P1-6 — orphan cleanup (disk files with no DB row, and DB rows with no file)
-# ---------------------------------------------------------------------------
-@router.post("/cleanup")
-async def admin_cleanup(
-    body: CleanupRequest,
-    db: Session = Depends(get_db),
-    admin_user: dict = Depends(require_admin),
-    request: Request = None,
-):
-    """Scan for (and optionally remove) orphaned files / records.
-
-    Requires admin. ``dry_run=true`` (default) only reports what *would* be
-    deleted; set ``dry_run=false`` to actually remove. ``target`` selects
-    ``"disk"`` / ``"db"`` / ``"both"``. Every real cleanup is audit-logged.
-    """
-    if body.target not in ("disk", "db", "both"):
-        raise HTTPException(400, "target must be one of: disk, db, both")
-
-    result = run_cleanup(db, target=body.target, dry_run=body.dry_run)
-    action = "cleanup_dry_run" if body.dry_run else "cleanup"
-    detail = (
-        f"disk={result['disk_orphan_count']} db={result['db_orphan_count']}"
-        + (f" del_disk={result['deleted_disk']} del_db={result['deleted_db']}"
-           if not body.dry_run else "")
+    rows = (
+        db.execute(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))
+        .scalars()
+        .all()
     )
-    _audit_log(action, detail, admin_user.get("username", "admin"), _client_ip(request))
-    return {"ok": True, **result}
+    return {"logs": [orm_to_dict(r) for r in rows]}

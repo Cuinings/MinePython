@@ -24,7 +24,7 @@ os.environ["DB_PATH"] = _TEST_DB
 # cleanup all pick up the temp path.
 _TEST_UPLOADS = Path(tempfile.gettempdir()) / "fileserver_pytest_uploads"
 _TEST_UPLOADS.mkdir(parents=True, exist_ok=True)
-import app.config as _cfg
+import modules.user.config as _cfg
 _cfg.UPLOAD_DIR = _TEST_UPLOADS
 
 # --- Deterministic knobs for the security/edge tests (read at import time) ---

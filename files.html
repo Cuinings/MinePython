@@ -3,35 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="title">文件服务器</title>
+    <title data-i18n="title">MinePython</title>
     <link rel="stylesheet" href="/static/common.css">
 </head>
 <body>
 
-<!-- ===================== LOGIN SCREEN ===================== -->
-<div class="login-container" id="loginScreen">
-    <div class="login-card">
-        <h1 data-i18n="h1">📁 文件服务器</h1>
-        <div class="sub" data-i18n="login_sub">登录以继续</div>
-        <div class="error" id="loginError"></div>
-        <label data-i18n="username_ph">用户名</label>
-        <input type="text" id="loginUser" data-i18n-placeholder="username_ph" placeholder="用户名">
-        <label data-i18n="password_ph">密码</label>
-        <input type="password" id="loginPass" data-i18n-placeholder="password_ph" placeholder="密码">
-        <div id="loginNickRow" style="display:none">
-            <label data-i18n="nickname_label">昵称</label>
-            <input type="text" id="loginNick" data-i18n-placeholder="nickname_label" placeholder="昵称（可选）">
-        </div>
-        <button class="btn-login" id="loginSubmitBtn" onclick="doAuth()" data-i18n="login">登录</button>
-        <div class="switch" onclick="switchAuthMode()" id="loginSwitch" data-i18n="no_account">没有账号? 注册</div>
-        <div class="skip" onclick="skipLogin()" data-i18n="skip_login">跳过, 以匿名身份进入</div>
-    </div>
-</div>
-
 <!-- ===================== MAIN APP ===================== -->
 <div class="app-container" id="appScreen">
     <div class="app-header">
-        <h1 data-i18n="h1">📁 文件服务器</h1>
+        <h1 data-i18n="h1">📁 MinePython</h1>
         <div class="header-right">
             <span class="user-menu-wrap">
                 <span class="user" id="userDisplay" onclick="toggleUserMenu(event)" style="cursor:pointer"></span>

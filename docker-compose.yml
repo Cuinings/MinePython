@@ -26,7 +26,10 @@ services:
       - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      # NOTE: /docs returns 403 in production (DEBUG defaults to false), so the
+      # original "curl -f /docs" healthcheck would mark the container UNHEALTHY.
+      # Probe "/" (serves index.html, always 200) instead.
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
       timeout: 5s
       retries: 3

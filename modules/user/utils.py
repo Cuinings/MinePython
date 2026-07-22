@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Utility functions: password hashing, file categorization, size formatting, audit logging."""
+"""工具函数：密码哈希、文件分类、大小格式化、审计日志。
+
+属于用户模块（基座），因此文件服务器与审计模块都复用本模块，不会产生反向依赖。
+"""
 
 import hashlib
 import logging
@@ -26,7 +29,7 @@ def _audit_log(action: str, target: str = "", username: str = "anonymous", ip: s
     """Write an audit log entry to the database."""
     from sqlalchemy import text
 
-    from app.database import SessionLocal
+    from modules.user.database import SessionLocal
     with SessionLocal() as db:
         db.execute(
             text("INSERT INTO audit_log (username, action, target, ip) VALUES (:u, :a, :t, :i)"),
@@ -84,7 +87,7 @@ def _verify_pw(password: str, stored: str) -> bool:
 # in a local .fernet_key file (gitignored). If the key is missing it is
 # generated once and persisted so ciphertext stays decryptable across restarts.
 # ---------------------------------------------------------------------------
-_FERNET_KEY_PATH = Path(__file__).parent.parent / ".fernet_key"
+_FERNET_KEY_PATH = Path(__file__).parent.parent.parent / ".fernet_key"
 
 
 def _load_fernet() -> "Fernet":
@@ -120,13 +123,13 @@ def _decrypt_plain(cipher: str) -> str:
 def _categorize(filename: str) -> str:
     """Determine category from file extension (P1-4: DB-backed mapping).
 
-    Delegates to :func:`app.services.category_service.categorize`, which reads
-    the runtime-editable mapping from the DB (cached in-process). The lazy
-    import avoids a circular dependency with the service module. The
+    Delegates to :func:`modules.files.services.category_service.categorize`,
+    which reads the runtime-editable mapping from the DB (cached in-process).
+    The lazy import avoids a circular dependency with the file module. The
     ``EXT_CATEGORY`` / ``DEFAULT_CATEGORY`` config values remain the seed source
     for the table (populated in ``init_db``).
     """
-    from app.services import category_service
+    from modules.files.services import category_service
 
     return category_service.categorize(filename)
 

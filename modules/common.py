@@ -1,0 +1,281 @@
+# -*- coding: utf-8 -*-
+"""模块共用层：FastAPI 应用工厂、共享中间件、异常处理、静态资源与页面服务。
+
+四个模块（user / files / audit / apidocs）都通过 :func:`create_app` 构建各自的
+FastAPI 应用，组合不同的路由器与页面；合并入口 :mod:`modules.combined` 也用它把
+四个模块挂到同一个应用（端口 8000）。所有安全头、请求日志、API 文档开关、全局异常
+处理、后台清理任务都集中在这里，保证行为一致。
+"""
+
+import asyncio
+import logging
+import os
+import time
+import uuid
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from modules.user import config as user_config
+from modules.user.config import (
+    ORPHAN_CLEANUP_AUTO,
+    ORPHAN_CLEANUP_INTERVAL_SECONDS,
+    TOKEN_CLEANUP_INTERVAL_SECONDS,
+)
+from modules.user.database import SessionLocal, init_db
+from modules.user.auth import purge_expired_tokens
+from modules.user.logging_config import setup_logging
+from modules.user.utils import _client_ip
+
+# Web UI 根目录（项目根，存 index.html / files.html / users.html / audit.html / api.html）
+WEB_ROOT = Path(__file__).parent.parent
+STATIC_DIR = WEB_ROOT / "static"
+STATIC_DIR.mkdir(exist_ok=True)
+
+log = logging.getLogger("fileserver")
+
+_DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
+
+
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global 500 handler — never leak internal exception strings in production.
+
+    Only attach ``error`` when DEBUG is enabled (trusted dev environments).
+    Imported directly by the security tests, so it lives at module level.
+    """
+    log.error(
+        f"Unhandled error on {request.method} {request.url.path}: {exc}", exc_info=True
+    )
+    content = {"detail": "Internal server error"}
+    if user_config.DEBUG:
+        content["error"] = str(exc)
+    return JSONResponse(status_code=500, content=content)
+
+
+def _load_html(name: str) -> str:
+    """Load an HTML page from disk with utf-8 encoding (hot reload)."""
+    html_path = WEB_ROOT / name
+    if not html_path.exists():
+        return f"<h1>{name} not found</h1>"
+    return html_path.read_text(encoding="utf-8")
+
+
+def _register_page(app: FastAPI, path: str, name: str) -> None:
+    """Register a single HTML page route, capturing ``name`` per-call."""
+
+    @app.get(path, response_class=HTMLResponse)
+    async def page():
+        return HTMLResponse(content=_load_html(name))
+
+    page.__name__ = f"page_{name}"
+
+
+def create_app(
+    title: str,
+    version: str,
+    description: str,
+    routers: list,
+    extra_pages: list[tuple[str, str]] | None = None,
+    include_api_docs: bool = True,
+) -> FastAPI:
+    """Build a FastAPI app with the shared middleware / handlers / pages.
+
+    * ``routers`` — API routers to include (e.g. ``[auth_router, files_router]``).
+    * ``extra_pages`` — list of ``(route_path, html_filename)`` served as HTML.
+    * ``include_api_docs`` — when True, serve ``/docs``, ``/redoc``,
+      ``/openapi.json`` and the ``/api`` doc-portal page (gated by DEBUG in prod).
+    """
+    app = FastAPI(
+        title=title,
+        version=version,
+        description=description,
+        docs_url="/docs" if include_api_docs else None,
+        redoc_url="/redoc" if include_api_docs else None,
+        openapi_url="/openapi.json" if include_api_docs else None,
+    )
+
+    # CORS is locked to explicit origins (never "*" together with credentials).
+    _CORS_ORIGINS = [
+        o.strip()
+        for o in os.getenv(
+            "CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+        ).split(",")
+        if o.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        start = time.time()
+        request_id = uuid.uuid4().hex
+        request.state.request_id = request_id
+        response = await call_next(request)
+        duration = (time.time() - start) * 1000
+        response.headers["X-Request-ID"] = request_id
+        log.info(
+            f"{request.method} {request.url.path} → {response.status_code} ({duration:.0f}ms)",
+            extra={
+                "event": "http_request",
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "duration_ms": round(duration, 1),
+                "client_ip": _client_ip(request),
+                "request_id": request_id,
+            },
+        )
+        return response
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        """Attach baseline security response headers to every response."""
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault(
+            "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+        )
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+        path = request.url.path
+        if path.startswith("/api/preview/"):
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+            frame_ancestors = "frame-ancestors 'self';"
+        else:
+            response.headers.setdefault("X-Frame-Options", "DENY")
+            frame_ancestors = "frame-ancestors 'none';"
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "img-src 'self' data: https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "font-src 'self' data: https://cdn.jsdelivr.net; "
+            + frame_ancestors,
+        )
+        return response
+
+    @app.middleware("http")
+    async def gate_api_docs(request: Request, call_next):
+        """Block interactive docs/OpenAPI when not in debug mode (R3)."""
+        if not user_config.DEBUG and request.url.path in _DOCS_PATHS:
+            return JSONResponse(status_code=403, content={"detail": "Not found"})
+        return await call_next(request)
+
+    app.add_exception_handler(Exception, global_exception_handler)
+
+    # Register API routers
+    for router in routers:
+        app.include_router(router)
+
+    # Static assets (common.css + js/ modules)
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    # Main app shell at "/" and "/index.html"
+    @app.get("/", response_class=HTMLResponse)
+    @app.get("/index.html", response_class=HTMLResponse)
+    async def index():
+        return HTMLResponse(content=_load_html("index.html"))
+
+    # Per-module extra pages (e.g. /files.html, /users.html, /audit.html)
+    for path, name in extra_pages or []:
+        _register_page(app, path, name)
+
+    # Swagger API portal page (/api, /api/) — separated from the file UI.
+    if include_api_docs:
+
+        @app.get("/api", response_class=HTMLResponse)
+        @app.get("/api/", response_class=HTMLResponse)
+        async def api_home():
+            html = _load_html("api.html")
+            html = (
+                html.replace("__TITLE__", app.title)
+                .replace("__VERSION__", app.version)
+                .replace("__DESCRIPTION__", app.description or "")
+            )
+            return HTMLResponse(content=html)
+
+    # ------------------------------------------------------------------
+    # Background: periodically purge expired session tokens (ARCH-3)
+    # ------------------------------------------------------------------
+    async def _token_cleanup_loop():
+        while True:
+            await asyncio.sleep(TOKEN_CLEANUP_INTERVAL_SECONDS)
+            try:
+                removed = purge_expired_tokens()
+                if removed:
+                    log.info(
+                        "Purged expired session tokens",
+                        extra={"event": "token_cleanup", "removed": removed},
+                    )
+            except Exception:  # pragma: no cover - defensive
+                log.exception("Token cleanup sweep failed")
+
+    # ------------------------------------------------------------------
+    # Background: optionally scan (and delete) orphaned files (P1-6)
+    # run_cleanup is imported lazily so modules that don't bundle the
+    # files module never pull it in.
+    # ------------------------------------------------------------------
+    async def _orphan_scan_loop():
+        while True:
+            await asyncio.sleep(ORPHAN_CLEANUP_INTERVAL_SECONDS)
+            try:
+                if ORPHAN_CLEANUP_AUTO:
+                    from modules.files.cleanup import run_cleanup
+
+                    with SessionLocal() as db:
+                        res = run_cleanup(db, target="both", dry_run=False)
+                    log.info(
+                        "Orphan auto-cleanup",
+                        extra={
+                            "event": "orphan_cleanup",
+                            "deleted_disk": res["deleted_disk"],
+                            "deleted_db": res["deleted_db"],
+                        },
+                    )
+                else:
+                    from modules.files.cleanup import scan_and_report
+
+                    scan_and_report()
+            except Exception:  # pragma: no cover - defensive
+                log.exception("Orphan scan failed")
+
+    @app.on_event("startup")
+    async def startup():
+        init_db()
+        removed = purge_expired_tokens()
+        log.info(
+            "Module app started",
+            extra={"event": "startup", "expired_tokens_purged": removed},
+        )
+        if TOKEN_CLEANUP_INTERVAL_SECONDS and TOKEN_CLEANUP_INTERVAL_SECONDS > 0:
+            asyncio.create_task(_token_cleanup_loop())
+        if ORPHAN_CLEANUP_INTERVAL_SECONDS and ORPHAN_CLEANUP_INTERVAL_SECONDS > 0:
+            asyncio.create_task(_orphan_scan_loop())
+
+    return app
+
+
+def run(app: FastAPI, host: str, port: int) -> None:
+    """Run a module app with uvicorn, delegating logging to our own config."""
+    import uvicorn
+
+    setup_logging()
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        reload=False,
+        log_config=None,  # we own logging (see modules.user.logging_config)
+        access_log=False,  # our request middleware logs structurally
+    )

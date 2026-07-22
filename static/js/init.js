@@ -20,7 +20,8 @@ function initApp() {
         showApp();
         if (typeof onAppReady === 'function') onAppReady();
     } else {
-        showLogin();
+        // No session at all — send the visitor to the standalone login page.
+        window.location.href = 'login.html';
     }
     if (typeof updateUploadHint === 'function') updateUploadHint();
 }

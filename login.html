@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">MinePython</title>
+    <link rel="stylesheet" href="/static/common.css">
+    <style>
+        .auth-topbar {
+            position: fixed; top: 14px; right: 18px; z-index: 50;
+            display: flex; align-items: center; gap: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Top-right controls: theme + language -->
+<div class="auth-topbar">
+    <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
+    <div class="lang-wrapper">
+        <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
+        <div class="lang-menu" id="langMenu">
+            <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
+            <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
+            <button class="lang-menu-item" data-lang="ru" onclick="switchToLang('ru')">Русский</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div class="login-container">
+    <div class="login-card">
+        <h1 data-i18n="h1">📁 MinePython</h1>
+        <div class="sub" data-i18n="login_sub">登录以继续</div>
+        <div class="error" id="loginError"></div>
+        <label data-i18n="username_ph">用户名</label>
+        <input type="text" id="loginUser" data-i18n-placeholder="username_ph" placeholder="用户名">
+        <label data-i18n="password_ph">密码</label>
+        <input type="password" id="loginPass" data-i18n-placeholder="password_ph" placeholder="密码">
+        <button class="btn-login" id="loginSubmitBtn" onclick="doLogin()" data-i18n="login">登录</button>
+        <div class="switch" onclick="goRegister()" id="loginSwitch" data-i18n="no_account">没有账号? 注册</div>
+        <div class="skip" onclick="skipLogin()" data-i18n="skip_login">跳过, 以匿名身份进入</div>
+    </div>
+</div>
+
+<script src="/static/js/util.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/toast.js"></script>
+<script src="/static/js/auth.js"></script>
+<script>
+    // Apply translations + language button state.
+    applyI18n();
+    updateLangBtn();
+
+    // Already signed in? Skip the login page entirely.
+    if (authToken && authRole !== 'anonymous') {
+        window.location.href = 'index.html';
+    }
+
+    // Enter key submits the login form.
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') doLogin();
+    });
+
+    function goRegister() { window.location.href = 'register.html'; }
+</script>
+</body>
+</html>

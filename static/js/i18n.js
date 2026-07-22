@@ -6,7 +6,7 @@
 
 var I18N = {
     zh: {
-        title:"文件服务器",h1:"📁 文件服务器",subtitle_label:"分类管理",
+        title:"MinePython",h1:"📁 MinePython",subtitle_label:"分类管理",
         loading:"加载中...",login_required:"登录已失效，请重新登录",auto_tag:"🤖 自动归类",new_tag:"+ 新建",
         del_title:"删除分类",btn_organize:"🗂 整理归类",
         organize_title:"将根目录散落文件按类型归类",
@@ -57,7 +57,7 @@ var I18N = {
         audit_scope_all:"全部用户",audit_scope_self:"仅本人",audit_filter_user:"筛选用户",audit_search_ph:"搜索目标…",
     },
     en: {
-        title:"File Server",h1:"📁 File Server",subtitle_label:"Categories",
+        title:"MinePython",h1:"📁 MinePython",subtitle_label:"Categories",
         loading:"Loading...",login_required:"Session expired, please log in again",auto_tag:"🤖 Auto",new_tag:"+ New",
         del_title:"Delete category",btn_organize:"🗂 Organize",
         organize_title:"Move root files into category folders",
@@ -108,7 +108,7 @@ var I18N = {
         audit_scope_all:"All users",audit_scope_self:"Only me",audit_filter_user:"Filter user",audit_search_ph:"Search target…",
     },
     ru: {
-        title:"Файловый сервер",h1:"📁 Файловый сервер",subtitle_label:"Категории",
+        title:"MinePython",h1:"📁 MinePython",subtitle_label:"Категории",
         loading:"Загрузка...",login_required:"Сессия истекла, войдите снова",auto_tag:"🤖 Авто",new_tag:"+ Новый",
         del_title:"Удалить категорию",btn_organize:"🗂 Упорядочить",
         organize_title:"Переместить корневые файлы в папки категорий",

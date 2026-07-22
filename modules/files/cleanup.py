@@ -10,7 +10,10 @@ Both forms come from the non-atomic upload/delete paths this module's sibling
 cleanup task (ARCH-7) is designed to minimise. Here we provide:
   * ``find_disk_orphans`` / ``find_db_orphans`` — pure detection,
   * ``run_cleanup`` — a dry-run preview or a real deletion (audit-logged),
-  * ``scan_and_report`` — used by the optional background sweep in ``main.py``.
+  * ``scan_and_report`` — used by the optional background sweep in common.py.
+
+This module lives under the file-server module and depends on the user module
+for the database engine / UPLOAD_DIR config.
 """
 
 import logging
@@ -18,8 +21,8 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from app.config import UPLOAD_DIR
-from app.database import File as FileModel
+from modules.user.config import UPLOAD_DIR
+from modules.user.database import File as FileModel
 
 log = logging.getLogger("fileserver.cleanup")
 
@@ -101,5 +104,56 @@ def scan_and_report() -> dict:
 # Lazily import the session factory to avoid a circular import at module load
 # (database.py imports from config, not from us, but keeping this local is safe).
 def db_session():
-    from app.database import SessionLocal
+    from modules.user.database import SessionLocal
     return SessionLocal()
+
+
+# ---------------------------------------------------------------------------
+# HTTP endpoint — orphan cleanup (P1-6).
+# Mounted at /api/admin/cleanup (same path as the original user-module admin
+# endpoint) but owned by the file-server module, which is where the cleanup
+# logic actually lives. Requires admin.
+# ---------------------------------------------------------------------------
+from fastapi import APIRouter, Depends, Request
+from fastapi.exceptions import HTTPException
+from pydantic import BaseModel
+
+from modules.user.auth import require_admin
+from modules.user.database import get_db
+from modules.user.utils import _audit_log, _client_ip
+
+router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+class CleanupRequest(BaseModel):
+    """Request body for the orphan-cleanup endpoint (P1-6)."""
+
+    dry_run: bool = True
+    target: str = "both"  # "disk" | "db" | "both"
+
+
+@router.post("/cleanup")
+async def admin_cleanup(
+    body: CleanupRequest,
+    db=Depends(get_db),
+    admin_user: dict = Depends(require_admin),
+    request: Request = None,
+):
+    """Scan for (and optionally remove) orphaned files / records.
+
+    Requires admin. ``dry_run=true`` (default) only reports what *would* be
+    deleted; set ``dry_run=false`` to actually remove. ``target`` selects
+    ``"disk"`` / ``"db"`` / ``"both"``. Every real cleanup is audit-logged.
+    """
+    if body.target not in ("disk", "db", "both"):
+        raise HTTPException(400, "target must be one of: disk, db, both")
+
+    result = run_cleanup(db, target=body.target, dry_run=body.dry_run)
+    action = "cleanup_dry_run" if body.dry_run else "cleanup"
+    detail = (
+        f"disk={result['disk_orphan_count']} db={result['db_orphan_count']}"
+        + (f" del_disk={result['deleted_disk']} del_db={result['deleted_db']}"
+           if not body.dry_run else "")
+    )
+    _audit_log(action, detail, admin_user.get("username", "admin"), _client_ip(request))
+    return {"ok": True, **result}

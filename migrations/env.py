@@ -2,8 +2,8 @@
 """Alembic environment — drives migrations against the application's engine.
 
 The database URL and ORM ``target_metadata`` both come from the running
-application (``app.database``) so there is a single source of truth for the
-schema. This keeps the migration baseline in lock-step with the SQLAlchemy
+application (``modules.user.database``) so there is a single source of truth for
+the schema. This keeps the migration baseline in lock-step with the SQLAlchemy
 models and means `alembic upgrade head` and `init_db()` agree on the schema.
 """
 
@@ -15,17 +15,17 @@ import sys
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Make the project root importable so `import app` resolves regardless of CWD.
+# Make the project root importable so `import modules` resolves regardless of CWD.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 # Import AFTER the path is set; these pull in the live engine + Base.metadata.
-from app.database import Base, engine  # noqa: E402
+from modules.user.database import Base, engine  # noqa: E402
 
 config = context.config
 
-# Inject the live DB URL from app config so alembic.ini never holds a hardcoded
+# Inject the live DB URL from the modules config so alembic.ini never holds a hardcoded
 # path. This is what lets the same migrations run against the dev DB, the test
 # DB (conftest isolation) and a production Postgres (ARCH-10, future).
 config.set_main_option("sqlalchemy.url", str(engine.url))

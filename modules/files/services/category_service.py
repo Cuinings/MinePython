@@ -2,8 +2,8 @@
 """Category business logic (ARCH-6).
 
 List / delete / organize operations on the file-category structure. The route
-handlers in :mod:`app.categories` keep the RBAC ``Depends`` guards and response
-wrapping; the work happens here.
+handlers in :mod:`modules.files.categories` keep the RBAC ``Depends`` guards and
+response wrapping; the work happens here.
 """
 
 import os
@@ -15,9 +15,9 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-import app.config as _cfg
-from app.database import ExtCategory, File as FileModel, SessionLocal, orm_to_dict
-from app.utils import _audit_log, _delete_file, _delete_tree
+import modules.user.config as _cfg
+from modules.user.database import ExtCategory, File as FileModel, SessionLocal, orm_to_dict
+from modules.user.utils import _audit_log, _delete_file, _delete_tree
 
 
 def list_categories(db: Session) -> list[dict]:
@@ -141,7 +141,7 @@ def organize_root() -> int:
         if not item.is_file():
             continue
         cat = categorize(item.name)
-        dest_dir = UPLOAD_DIR / cat
+        dest_dir = _cfg.UPLOAD_DIR / cat
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / item.name
         if not dest.exists():

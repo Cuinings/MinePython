@@ -1,5 +1,5 @@
 // =====================================================================
-//  File Server — auth state + login / logout (P2-3 modularization)
+//  MinePython — auth state + login / logout (P2-3 modularization)
 //  Kept as a classic script because the per-page inline scripts read the
 //  mutable globals (authToken / authRole / authUser) directly; a closed ES
 //  module would not reflect those mutations on window. The shared state stays
@@ -10,14 +10,11 @@ var authToken = localStorage.getItem('fs_token') || '';
 var authUser = localStorage.getItem('fs_user') || '';
 var authRole = localStorage.getItem('fs_role') || '';
 var authNick = localStorage.getItem('fs_nick') || '';
-var authMode = 'login'; // login | register
 
+// The auth UI now lives on standalone pages (login.html / register.html).
+// Anything that used to reveal the inline login screen now bounces there.
 function showLogin() {
-    var ls = document.getElementById('loginScreen');
-    var app = document.getElementById('appScreen');
-    if (ls) ls.style.display = 'flex';
-    if (app) app.classList.remove('active');
-    applyI18n();
+    window.location.href = 'login.html';
 }
 
 function showApp() {
@@ -36,24 +33,9 @@ function showApp() {
     if (authRole === 'admin' || authRole === 'reviewer') startPendingPoll();
 }
 
-function switchAuthMode() {
-    authMode = authMode === 'login' ? 'register' : 'login';
-    var btn = document.getElementById('loginSubmitBtn');
-    var sw = document.getElementById('loginSwitch');
-    if (btn) btn.textContent = authMode === 'login' ? t('login') : t('register');
-    if (sw) sw.textContent = authMode === 'login' ? t('no_account') : t('has_account');
-    var sub = document.querySelector('.sub');
-    if (sub) sub.textContent = authMode === 'login' ? t('login_sub') : t('register_sub');
-    var err = document.getElementById('loginError');
-    if (err) err.style.display = 'none';
-    var nickRow = document.getElementById('loginNickRow');
-    if (nickRow) nickRow.style.display = authMode === 'register' ? 'block' : 'none';
-}
-
 function skipLogin() {
     // Enter as an anonymous (read-only guest) visitor. Clear any stale
-    // credentials, mark the anonymous session, and load the page content the
-    // same way a real login would (otherwise the file list / views never render).
+    // credentials, mark the anonymous session, and jump straight into the app.
     authToken = ''; authUser = ''; authNick = ''; authRole = 'anonymous';
     localStorage.removeItem('fs_token');
     localStorage.removeItem('fs_user');
@@ -61,29 +43,36 @@ function skipLogin() {
     localStorage.removeItem('fs_nick');
     localStorage.setItem('fs_anon', '1');
     stopPendingPoll();
-    showApp();
-    if (typeof onAppReady === 'function') onAppReady();
+    window.location.href = 'index.html';
 }
 
-async function doAuth() {
+// Small helpers shared by doLogin / doRegister.
+function showAuthError(el, msg, ok) {
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = ok ? 'var(--green)' : 'var(--danger)';
+    el.style.display = 'block';
+}
+function clearAuthFields() {
+    var u = document.getElementById('loginUser');
+    var p = document.getElementById('loginPass');
+    var n = document.getElementById('loginNick');
+    if (u) u.value = '';
+    if (p) p.value = '';
+    if (n) n.value = '';
+}
+
+async function doLogin() {
     var u = document.getElementById('loginUser').value.trim();
     var p = document.getElementById('loginPass').value.trim();
     var errEl = document.getElementById('loginError');
+    if (!u || !p) { showAuthError(errEl, t('fill_fields') || 'Fill all fields'); return; }
 
-    if (!u || !p) { if (errEl) { errEl.textContent = t('fill_fields') || 'Fill all fields'; errEl.style.display = 'block'; } return; }
-
-    var body = {username: u, password: p};
-    if (authMode === 'register') {
-        var nick = document.getElementById('loginNick').value.trim();
-        if (nick) body.nickname = nick;
-    }
-
-    var url = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
     try {
-        var res = await fetch(url, {
+        var res = await fetch('/api/auth/login', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(body)
+            body: JSON.stringify({username: u, password: p})
         });
         var data = await res.json();
         if (data.ok && data.token) {
@@ -95,36 +84,61 @@ async function doAuth() {
             localStorage.setItem('fs_user', authUser);
             localStorage.setItem('fs_role', authRole);
             localStorage.setItem('fs_nick', authNick);
+            localStorage.removeItem('fs_anon');
             if (data.require_password_change) {
                 // First login on default/weak credentials: force a change
                 // before the user can reach anything.
                 showForcePwChange();
             } else {
-                localStorage.removeItem('fs_anon');
-                stopPendingPoll();
-                showApp();
-                if (authRole === 'admin' || authRole === 'reviewer') startPendingPoll();
-                if (typeof onAppReady === 'function') onAppReady();
+                window.location.href = 'index.html';
             }
-        } else if (data.ok && !data.token) {
-            if (errEl) {
-                errEl.textContent = t('pending_approval') || 'Registration submitted, pending admin approval';
-                errEl.style.color = 'var(--green)';
-                errEl.style.display = 'block';
-            }
-            document.getElementById('loginUser').value = '';
-            document.getElementById('loginPass').value = '';
-            switchAuthMode();
-            authMode = 'login';
         } else {
-            if (errEl) {
-                errEl.textContent = data.message || data.detail || 'Error';
-                errEl.style.color = 'var(--danger)';
-                errEl.style.display = 'block';
-            }
+            showAuthError(errEl, data.message || data.detail || 'Error');
         }
-    } catch(e) {
-        if (errEl) { errEl.textContent = t('net_error') || 'Network error'; errEl.style.display = 'block'; }
+    } catch (e) {
+        showAuthError(errEl, t('net_error') || 'Network error');
+    }
+}
+
+async function doRegister() {
+    var u = document.getElementById('loginUser').value.trim();
+    var p = document.getElementById('loginPass').value.trim();
+    var errEl = document.getElementById('loginError');
+    if (!u || !p) { showAuthError(errEl, t('fill_fields') || 'Fill all fields'); return; }
+
+    var body = {username: u, password: p};
+    var nick = document.getElementById('loginNick');
+    if (nick && nick.value.trim()) body.nickname = nick.value.trim();
+
+    try {
+        var res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        var data = await res.json();
+        if (data.ok && data.token) {
+            // Auto-activated account: log straight in.
+            authToken = data.token;
+            authUser = u;
+            authRole = data.role || '';
+            authNick = data.nickname || '';
+            localStorage.setItem('fs_token', authToken);
+            localStorage.setItem('fs_user', authUser);
+            localStorage.setItem('fs_role', authRole);
+            localStorage.setItem('fs_nick', authNick);
+            localStorage.removeItem('fs_anon');
+            window.location.href = 'index.html';
+        } else if (data.ok && !data.token) {
+            // Pending admin approval: tell the user, then send them to login.
+            clearAuthFields();
+            showAuthError(errEl, t('pending_approval') || 'Registration submitted, pending admin approval', true);
+            setTimeout(function () { window.location.href = 'login.html'; }, 1800);
+        } else {
+            showAuthError(errEl, data.message || data.detail || 'Error');
+        }
+    } catch (e) {
+        showAuthError(errEl, t('net_error') || 'Network error');
     }
 }
 
@@ -168,9 +182,8 @@ async function submitForcePwChange() {
             var m = document.getElementById('forcePwModal'); if (m) m.remove();
             localStorage.removeItem('fs_anon');
             stopPendingPoll();
-            showApp();
-            if (authRole === 'admin' || authRole === 'reviewer') startPendingPoll();
-            if (typeof onAppReady === 'function') onAppReady();
+            // The auth page has no app screen — go to the app after the change.
+            window.location.href = 'index.html';
         } else {
             err.textContent = data.message || data.detail || '修改失败';
         }
@@ -212,13 +225,8 @@ function forceLogout(reason) {
     }
 }
 
-// Enter key on login
-document.addEventListener('keydown', function(e) {
-    var ls = document.getElementById('loginScreen');
-    if (e.key === 'Enter' && ls && ls.style.display !== 'none') {
-        doAuth();
-    }
-});
+// Enter-to-submit is wired per page (login.html / register.html) so each
+// page can call the correct handler.
 
 function getAuthHeaders() {
     return authToken ? {'Authorization': 'Bearer ' + authToken} : {};

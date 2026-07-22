@@ -2,7 +2,7 @@
 """P1-4 分类映射配置化 — backend tests.
 
 Verifies the extension -> category mapping moved from the hardcoded
-``app.config.EXT_CATEGORY`` dict into a DB table that is editable at runtime via
+``modules.user.config.EXT_CATEGORY`` dict into a DB table that is editable at runtime via
 the category-mapping CRUD API (admin, ``category:manage``):
 
   * the mapping is seeded from EXT_CATEGORY on first boot and listed via the API;
@@ -21,9 +21,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import SessionLocal, init_db
-from app.main import app
-from app.services.category_service import categorize
+from modules.user.database import SessionLocal, init_db
+from modules.combined import app
+from modules.files.services.category_service import categorize
 
 init_db()
 client = TestClient(app)

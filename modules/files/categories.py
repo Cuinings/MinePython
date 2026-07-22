@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 """Category endpoints: list, delete, organize root files (RBAC-gated).
 
-The file-category business logic lives in :mod:`app.services.category_service`;
+The file-category business logic lives in :mod:`modules.files.services.category_service`;
 these handlers keep only the RBAC ``Depends`` guards and response shaping.
 """
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.auth import require_permission, require_permission_allow_anonymous
-from app.database import get_db
-from app.models import (
+from modules.user.auth import require_permission, require_permission_allow_anonymous
+from modules.user.database import get_db
+from modules.user.models import (
     CategoryListResponse,
     ExtCategoryRuleListResponse,
     ExtCategoryRuleRequest,
 )
-from app.services import category_service
+from modules.files.services import category_service
 
 router = APIRouter(prefix="/api", tags=["Category"])
 

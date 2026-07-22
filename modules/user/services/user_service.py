@@ -2,10 +2,10 @@
 """User / account business logic (ARCH-6).
 
 Encapsulates the DB operations behind the admin user-CRUD endpoints and the
-self-service password/deactivate endpoints. Route handlers in :mod:`app.admin`
-(and :mod:`app.auth` for the self-service ones) keep the ``Depends`` permission
-guards and response shaping, but delegate the actual work here. Functions raise
-``HTTPException`` for domain errors (not-found / forbidden / conflict) so the
+self-service password/deactivate endpoints. Route handlers in
+:mod:`modules.user.admin` (and :mod:`modules.user.auth` for the self-service
+ones) keep the ``Depends`` permission guards and response shaping, but delegate
+the actual work here. Functions raise ``HTTPException`` for domain errors so the
 HTTP layer stays thin.
 """
 
@@ -13,24 +13,26 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.database import ROLES, SessionToken, User, orm_to_dict
-from app.models import AdminBatchRequest, AdminUserRequest
-from app.utils import (
+from modules.user.database import (
+    ROLES,
+    SessionToken,
+    User,
+    get_permissions_for_role,
+    orm_to_dict,
+)
+from modules.user.models import AdminBatchRequest, AdminUserRequest
+from modules.user.utils import (
     _audit_log,
     _client_ip,
     _decrypt_plain,
     _encrypt_plain,
     _hash_pw,
+    _verify_pw,
 )
 
 
 def user_to_dict(user) -> dict:
-    """Convert an ORM User instance to the API representation.
-
-    The optional plaintext-password copy is decrypted here (it is stored
-    encrypted at rest) so admins can view it; access is gated by the
-    ``user:read`` permission, so only admins/reviewers ever receive it.
-    """
+    """Convert an ORM User instance to the API representation."""
     d = orm_to_dict(user)
     d["password_plain"] = _decrypt_plain(d.get("password_plain", ""))
     return d
@@ -41,9 +43,6 @@ def invalidate_user_tokens(db: Session, user_id: int) -> None:
     db.execute(delete(SessionToken).where(SessionToken.user_id == user_id))
 
 
-# ---------------------------------------------------------------------------
-# Registration (self-service, pending approval)
-# ---------------------------------------------------------------------------
 def register_user(db: Session, username: str, password: str, nickname: str, ip: str) -> dict:
     """Register a new user (pending admin approval). Returns an API dict."""
     if not username or not password:
@@ -73,9 +72,6 @@ def register_user(db: Session, username: str, password: str, nickname: str, ip: 
     return {"ok": True, "message": "Registration submitted, pending admin approval"}
 
 
-# ---------------------------------------------------------------------------
-# Admin CRUD
-# ---------------------------------------------------------------------------
 def create_user(db: Session, body: AdminUserRequest, ip: str) -> dict:
     """Create a new user (admin). Returns an API dict."""
     if not body.username or not body.password:
@@ -85,7 +81,9 @@ def create_user(db: Session, body: AdminUserRequest, ip: str) -> dict:
     if len(body.password) < 3:
         raise HTTPException(400, "Password too short")
 
-    existing = db.execute(select(User).where(User.username == body.username)).scalar_one_or_none()
+    existing = db.execute(
+        select(User).where(User.username == body.username)
+    ).scalar_one_or_none()
     if existing:
         raise HTTPException(409, "Username already exists")
 
@@ -140,8 +138,6 @@ def update_user(db: Session, user_id: int, body: AdminUserRequest, ip: str) -> d
 
     db.commit()
 
-    # Changing the password or disabling the account must invalidate every
-    # existing session so stale tokens cannot keep being used.
     if body.password or (body.status and body.status != "active"):
         invalidate_user_tokens(db, user.id)
         db.commit()
@@ -167,16 +163,13 @@ def delete_user(db: Session, user_id: int, admin: dict, ip: str) -> dict:
     return {"ok": True, "message": f"User '{uname}' deleted"}
 
 
-# ---------------------------------------------------------------------------
-# Self-service
-# ---------------------------------------------------------------------------
-def change_password(db: Session, user_id: int, old_password: str, new_password: str, ip: str) -> dict:
+def change_password(
+    db: Session, user_id: int, old_password: str, new_password: str, ip: str
+) -> dict:
     """Change the caller's own password and invalidate all their sessions."""
     target = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
     if not target:
         raise HTTPException(404, "User not found")
-    from app.utils import _verify_pw
-
     if not _verify_pw(old_password, target.password):
         raise HTTPException(400, "当前密码不正确")
     if len(new_password) < 3:
@@ -204,9 +197,6 @@ def deactivate_user(db: Session, user_id: int, ip: str) -> dict:
     return {"ok": True, "message": "账号已注销"}
 
 
-# ---------------------------------------------------------------------------
-# Approval
-# ---------------------------------------------------------------------------
 def approve_user(db: Session, user_id: int, ip: str) -> dict:
     """Approve a pending user. Returns an API dict."""
     user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
@@ -235,8 +225,6 @@ def batch_user_action(db: Session, body: AdminBatchRequest, user: dict, ip: str)
         raise HTTPException(400, "Invalid action")
     if not body.ids:
         raise HTTPException(400, "No users selected")
-
-    from app.database import get_permissions_for_role
 
     perms = get_permissions_for_role(user["role"])
     needed = "user:manage" if body.action == "delete" else "user:approve"

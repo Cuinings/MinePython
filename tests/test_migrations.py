@@ -14,7 +14,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, inspect, text
 
-from app.database import engine, init_db
+from modules.user.database import engine, init_db
 
 ROOT = Path(__file__).parent.parent
 EXPECTED_TABLES = {

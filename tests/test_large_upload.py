@@ -11,7 +11,7 @@ lock in the *server-side* contract that makes that bar meaningful:
   * the configured size ceiling genuinely rejects oversized uploads, so the bar
     never spins on a doomed request (the endpoint fails fast with 400).
 
-``file_service`` reads the ceiling dynamically from ``app.config`` (ARCH-8),
+``file_service`` reads the ceiling dynamically from ``modules.user.config`` (ARCH-8),
 so we can shrink it in a test without touching production values.
 """
 
@@ -24,10 +24,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import MAX_UPLOAD_SIZE_BYTES
-from app.database import init_db
-from app.main import app
-from app.services.file_service import validate_upload
+from modules.user.config import MAX_UPLOAD_SIZE_BYTES
+from modules.user.database import init_db
+from modules.combined import app
+from modules.files.services.file_service import validate_upload
 
 # Tables + RBAC seed before any request (mirrors test_api.py).
 init_db()
@@ -74,7 +74,7 @@ class TestLargeUpload:
         # The record actually landed and the physical file exists at full size.
         path = _stored_path(token, name)
         assert path
-        from app.config import UPLOAD_DIR
+        from modules.user.config import UPLOAD_DIR
 
         full = UPLOAD_DIR / path
         assert full.exists()
@@ -87,7 +87,7 @@ class TestLargeUpload:
         """
         token = _admin_token()
         # Shrink the limit to 1 KiB for this test only.
-        monkeypatch.setattr("app.config.MAX_UPLOAD_SIZE_BYTES", 1024)
+        monkeypatch.setattr("modules.user.config.MAX_UPLOAD_SIZE_BYTES", 1024)
         small_ceiling = 1024
 
         name = f"toobig_{uuid.uuid4().hex[:8]}.bin"

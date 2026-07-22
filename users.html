@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">文件服务器</title>
+    <link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div class="login-container" id="loginScreen">
+    <div class="login-card">
+        <h1 data-i18n="h1">📁 文件服务器</h1>
+        <div class="sub" data-i18n="login_sub">登录以继续</div>
+        <div class="error" id="loginError"></div>
+        <label data-i18n="username_ph">用户名</label>
+        <input type="text" id="loginUser" data-i18n-placeholder="username_ph" placeholder="用户名">
+        <label data-i18n="password_ph">密码</label>
+        <input type="password" id="loginPass" data-i18n-placeholder="password_ph" placeholder="密码">
+        <div id="loginNickRow" style="display:none">
+            <label data-i18n="nickname_label">昵称</label>
+            <input type="text" id="loginNick" data-i18n-placeholder="nickname_label" placeholder="昵称（可选）">
+        </div>
+        <button class="btn-login" id="loginSubmitBtn" onclick="doAuth()" data-i18n="login">登录</button>
+        <div class="switch" onclick="switchAuthMode()" id="loginSwitch" data-i18n="no_account">没有账号? 注册</div>
+        <div class="skip" onclick="skipLogin()" data-i18n="skip_login">跳过, 以匿名身份进入</div>
+    </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div class="app-container" id="appScreen">
+    <div class="app-header">
+        <h1 data-i18n="h1">📁 文件服务器</h1>
+        <div class="header-right">
+            <span class="user" id="userDisplay"></span>
+            <button class="logout-btn" onclick="doLogout()" data-i18n="logout">退出</button>
+            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
+            <div class="lang-wrapper">
+                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
+                <div class="lang-menu" id="langMenu">
+                    <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
+                    <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
+                    <button class="lang-menu-item" data-lang="ru" onclick="switchToLang('ru')">Русский</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pending approval notification (admin only) -->
+    <div class="pending-bar" id="pendingBar">
+        <span class="count" id="pendingCount"></span>
+        <span class="users" id="pendingUsers"></span>
+        <button class="btn-approve" onclick="goAdmin()" data-i18n="view_approvals">查看审批</button>
+    </div>
+
+    <!-- ===== ADMIN VIEW ===== -->
+    <div id="viewAdmin" style="display:none">
+        <div class="back-row">
+            <button class="back-btn" onclick="goHome()" data-i18n="back_home">← 返回首页</button>
+        </div>
+
+        <!-- Users panel -->
+        <div id="panelUsers">
+            <div class="section-header">
+                <h2 data-i18n="user_mgmt">用户管理</h2>
+                <button class="btn btn-xs" id="addUserBtn" onclick="openAddUserModal()" style="color:var(--accent);border-color:var(--accent)" data-i18n="btn_add_user">+ 添加用户</button>
+            </div>
+            <div id="userBatchBar" style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+                <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim);cursor:pointer">
+                    <input type="checkbox" id="selectAllUsers" onclick="toggleSelectAllUsers(this)" style="width:16px;height:16px;cursor:pointer">
+                    <span data-i18n="select_all">全选</span>
+                </label>
+                <button class="btn btn-xs" onclick="batchUserAction('approve')" id="userBatchApprove" style="display:none;color:var(--green);border-color:var(--green)" data-i18n="batch_approve">批量通过</button>
+                <button class="btn btn-xs" onclick="batchUserAction('reject')" id="userBatchReject" style="display:none;color:var(--danger)" data-i18n="batch_reject">批量拒绝</button>
+                <button class="btn btn-xs btn-danger" onclick="batchUserAction('delete')" id="userBatchDel" style="display:none" data-i18n="batch_delete">批量删除</button>
+                <span id="userSelectCount" style="font-size:11px;color:var(--dim)"></span>
+            </div>
+            <div class="file-list" id="adminUserList">
+                <div class="empty" data-i18n="loading">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== MODAL: Add / Edit User ===== -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal-card">
+            <h2 id="userModalTitle">添加用户</h2>
+            <label data-i18n="username_ph">用户名</label>
+            <input type="text" id="modalUser" data-i18n-placeholder="username_ph" placeholder="用户名">
+            <label data-i18n="password_ph">密码</label>
+            <div style="position:relative;display:flex;align-items:center">
+                <input type="text" id="modalPass" data-i18n-placeholder="password_ph" placeholder="密码" style="flex:1;padding-right:34px">
+                <button type="button" class="eye-btn" onclick="toggleModalPass()" title="显示/隐藏" style="position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:15px">👁</button>
+            </div>
+            <label data-i18n="nickname_label">昵称</label>
+            <input type="text" id="modalNick" data-i18n-placeholder="nickname_label" placeholder="昵称">
+            <label data-i18n="role_label">角色</label>
+            <select id="modalRole">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+            </select>
+            <label data-i18n="status_label">状态</label>
+            <select id="modalStatus">
+                <option value="active">active</option>
+                <option value="pending">pending</option>
+            </select>
+            <div class="modal-actions">
+                <button class="btn btn-cancel" onclick="closeUserModal()" data-i18n="btn_cancel">取消</button>
+                <button class="btn btn-save" onclick="saveUser()" id="modalSaveBtn" data-i18n="btn_save">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/util.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/toast.js"></script>
+<script src="/static/js/auth.js"></script>
+<script src="/static/js/pending.js"></script>
+<script src="/static/js/init.js"></script>
+<script>
+// ==================== User management logic ====================
+async function loadAdminUsers(retry) {
+    var list = document.getElementById('adminUserList');
+    if (!list) return;
+    try {
+        var res = await fetch('/api/admin/users', { headers: getAuthHeaders() });
+        if (!res.ok) {
+            if (!retry) { return loadAdminUsers(true); }
+            list.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
+            return;
+        }
+        var data = await res.json();
+        if (!data.users || !data.users.length) {
+            list.innerHTML = '<div class="empty">' + (t('no_users') || 'No users') + '</div>';
+            return;
+        }
+        var canApprove = (authRole === 'admin' || authRole === 'reviewer');
+        var canManage = (authRole === 'admin');
+        var html = '';
+        data.users.forEach(function(u) {
+            var isDefault = !!u.is_default;
+            var nickname = u.nickname || u.username;
+            // 角色 / 默认 徽章（仅此一处，避免与独立列重复）
+            var roleBadge = u.role === 'admin' ? '<span class="badge badge-admin">admin</span>' : '';
+            if (isDefault) roleBadge += ' <span class="badge badge-admin">默认</span>';
+            var statusBadge = '';
+            if (u.status === 'pending') {
+                statusBadge = '<span class="badge badge-pending">' + (t('pending') || 'pending') + '</span>';
+            } else if (u.status === 'active') {
+                statusBadge = '<span class="badge badge-active">' + (t('active') || 'active') + '</span>';
+            } else {
+                statusBadge = '<span class="badge" style="color:var(--dim)">' + u.status + '</span>';
+            }
+            var pwPlain = u.password_plain || '';
+            var escPlain = pwPlain.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            var pwDisplay = pwPlain
+                ? '<span class="pw-show" style="font-size:10px;color:var(--accent);cursor:pointer" title="' + t('click_show_pw') + '" data-plain="' + escPlain + '" onclick="togglePw(this)">●●●●●●●●</span>'
+                : '<span style="font-size:10px;color:var(--dim)">—</span>';
+            var initial = (nickname || u.username || '?').charAt(0).toUpperCase();
+            var avatarBg = u.role === 'admin' ? 'rgba(163,113,247,.18)' : 'rgba(96,165,250,.16)';
+
+            var actions = '<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center">';
+            if (canManage) {
+                actions += '<button class="btn btn-xs" onclick="openEditUserModal(' + u.id + ',\'' + u.username.replace(/'/g,"\\'") + '\',\'' + (u.nickname || '').replace(/'/g,"\\'") + '\',\'' + u.role + '\',\'' + u.status + '\',\'' + escPlain + '\')">' + (t('btn_edit') || 'Edit') + '</button>';
+                if (!isDefault) {
+                    actions += '<button class="btn btn-xs btn-danger" onclick="deleteUser(' + u.id + ',\'' + u.username.replace(/'/g,"\\'") + '\')">' + (t('btn_del') || 'Del') + '</button>';
+                } else {
+                    actions += '<span style="font-size:10px;color:var(--dim)" title="默认账号不可删除">🔒</span>';
+                }
+            }
+            if (u.status === 'pending' && canApprove) {
+                actions += '<button class="btn btn-xs" onclick="approveUser(' + u.id + ')" style="color:var(--green);border-color:var(--green)">' + (t('approve') || 'Approve') + '</button>';
+                actions += '<button class="btn btn-xs" onclick="rejectUser(' + u.id + ',\'' + u.username.replace(/'/g,"\\'") + '\')" style="color:var(--danger)">' + (t('reject') || 'Reject') + '</button>';
+            }
+            actions += '</div>';
+
+            html += '<div class="file-card user-card">' +
+                '<input type="checkbox" class="user-check" data-id="' + u.id + '"' + (isDefault ? ' disabled title="默认账号不可删除"' : '') + ' onclick="event.stopPropagation();updateUserBatchUI()" style="width:16px;height:16px;cursor:pointer">' +
+                '<div class="file-body">' +
+                    '<div class="user-avatar" style="background:' + avatarBg + '">' + initial + '</div>' +
+                    '<div class="file-main">' +
+                        '<div class="file-name-line">' +
+                            '<span class="file-name">' + escHtml(nickname) + '</span>' +
+                            '<span class="user-handle">@' + escHtml(u.username) + '</span>' +
+                            roleBadge + statusBadge +
+                        '</div>' +
+                        '<div class="file-bottom-row">' +
+                            '<span class="file-time">' + (u.created_at || '-') + '</span>' +
+                            '<span class="file-size-dot">\u00B7</span>' +
+                            pwDisplay +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="file-actions">' + actions + '</div>' +
+                '</div>' +
+            '</div>';
+        });
+        list.innerHTML = html;
+        updateUserBatchUI();
+    } catch(e) {
+        list.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
+    }
+}
+
+async function approveUser(id) {
+    var res = await fetch('/api/admin/users/' + id + '/approve', { method: 'PUT', headers: getAuthHeaders() });
+    var data = await res.json();
+    if (data.ok) { toast(data.message || 'OK'); loadAdminUsers(); checkPending(); }
+    else { toast((data.detail || data.message || t('toast_failed')), true); }
+}
+
+async function deleteUser(id, username) {
+    if (!confirm((t('confirm_del_file') || 'Delete') + ' ' + username + '?')) return;
+    var res = await fetch('/api/admin/users/' + id, { method: 'DELETE', headers: getAuthHeaders() });
+    var data = await res.json();
+    if (data.ok) { toast(data.message || 'OK'); loadAdminUsers(); checkPending(); }
+    else { toast((data.detail || data.message || t('toast_failed')), true); }
+}
+
+function updateUserBatchUI() {
+    var checked = document.querySelectorAll('.user-check:checked');
+    var all = document.querySelectorAll('.user-check:not([disabled])');
+    var n = checked.length;
+    var canApprove = (authRole === 'admin' || authRole === 'reviewer');
+    var canManage = (authRole === 'admin');
+    document.getElementById('userBatchApprove').style.display = (n && canApprove) ? 'inline-block' : 'none';
+    document.getElementById('userBatchReject').style.display = (n && canApprove) ? 'inline-block' : 'none';
+    document.getElementById('userBatchDel').style.display = (n && canManage) ? 'inline-block' : 'none';
+    document.getElementById('userSelectCount').textContent = n ? '已选 ' + n + ' 项' : '';
+    var selAll = document.getElementById('selectAllUsers');
+    if (selAll) selAll.checked = (all.length > 0 && checked.length === all.length);
+}
+
+function toggleSelectAllUsers(cb) {
+    document.querySelectorAll('.user-check:not([disabled])').forEach(function(chk) { chk.checked = cb.checked; });
+    updateUserBatchUI();
+}
+
+async function batchUserAction(action) {
+    var checked = document.querySelectorAll('.user-check:checked');
+    if (!checked.length) return;
+    var ids = Array.from(checked).map(function(c) { return parseInt(c.dataset.id, 10); });
+    var label = action === 'approve' ? (t('approve') || 'Approve')
+              : action === 'reject' ? (t('reject') || 'Reject')
+              : (t('batch_delete') || 'Delete');
+    var msg = (t('confirm_batch') || 'Apply {act} to {n}?').replace('{n}', ids.length).replace('{act}', label);
+    if (!confirm(msg)) return;
+    var res = await fetch('/api/admin/users/batch', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeaders()),
+        body: JSON.stringify({ ids: ids, action: action }),
+    });
+    var data = await res.json().catch(function() { return {}; });
+    if (res.ok && data.ok) {
+        var done = (data.processed && data.processed.length) || 0;
+        var skipped = (data.failed && data.failed.length) || 0;
+        toast((t('batch_done') || 'Processed {n}').replace('{n}', done) + (skipped ? ' (' + skipped + ' 跳过)' : ''));
+        loadAdminUsers();
+        checkPending();
+    } else {
+        toast(data.detail || data.message || t('toast_failed'), true);
+    }
+}
+
+async function rejectUser(id, username) {
+    if (!confirm((t('confirm_reject') || 'Reject this user?') + ' (' + username + ')')) return;
+    var res = await fetch('/api/admin/users/batch', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeaders()),
+        body: JSON.stringify({ ids: [id], action: 'reject' }),
+    });
+    var data = await res.json().catch(function() { return {}; });
+    if (res.ok && data.ok) { toast(t('reject') + ' OK'); loadAdminUsers(); checkPending(); }
+    else { toast(data.detail || data.message || t('toast_failed'), true); }
+}
+
+// ==================== Modal: Add / Edit User ====================
+var editingUserId = null;
+
+function togglePw(el) {
+    var plain = el.getAttribute('data-plain') || '';
+    if (el.dataset.shown === '1') {
+        el.textContent = '●●●●●●●●';
+        el.dataset.shown = '0';
+        el.title = t('click_show_pw') || 'Show';
+    } else {
+        el.textContent = plain || '(空)';
+        el.dataset.shown = '1';
+        el.title = t('click_hide_pw') || 'Hide';
+    }
+}
+
+function toggleModalPass() {
+    var mp = document.getElementById('modalPass');
+    if (!mp) return;
+    mp.type = (mp.type === 'password') ? 'text' : 'password';
+}
+
+function openAddUserModal() {
+    editingUserId = null;
+    document.getElementById('userModalTitle').textContent = t('modal_add_title') || 'Add User';
+    document.getElementById('modalUser').value = '';
+    document.getElementById('modalPass').value = '';
+    document.getElementById('modalPass').type = 'text';
+    document.getElementById('modalNick').value = '';
+    document.getElementById('modalRole').value = 'user';
+    document.getElementById('modalStatus').value = 'active';
+    document.getElementById('modalSaveBtn').textContent = t('btn_save') || 'Save';
+    document.getElementById('userModal').classList.add('show');
+}
+
+function openEditUserModal(id, username, nickname, role, status, plain) {
+    editingUserId = id;
+    document.getElementById('userModalTitle').textContent = t('modal_edit_title') || 'Edit User';
+    document.getElementById('modalUser').value = username;
+    var mp = document.getElementById('modalPass');
+    mp.value = plain || '';
+    mp.type = 'text';
+    mp.placeholder = '留空则不修改密码';
+    document.getElementById('modalNick').value = nickname || '';
+    document.getElementById('modalRole').value = role || 'user';
+    document.getElementById('modalStatus').value = status || 'active';
+    document.getElementById('modalSaveBtn').textContent = t('btn_save') || 'Save';
+    document.getElementById('userModal').classList.add('show');
+}
+
+function closeUserModal() {
+    document.getElementById('userModal').classList.remove('show');
+    editingUserId = null;
+    document.getElementById('modalPass').placeholder = t('password_ph');
+}
+
+async function saveUser() {
+    var username = document.getElementById('modalUser').value.trim();
+    var password = document.getElementById('modalPass').value.trim();
+    var nickname = document.getElementById('modalNick').value.trim();
+    var role = document.getElementById('modalRole').value;
+    var status = document.getElementById('modalStatus').value;
+
+    if (!username) { toast(t('fill_fields') || 'Fill all fields', true); return; }
+
+    var body = { username: username, password: password, nickname: nickname, role: role, status: status };
+    var url, method;
+    if (editingUserId) {
+        url = '/api/admin/users/' + editingUserId;
+        method = 'PUT';
+        if (!password) body.password = '';
+    } else {
+        url = '/api/admin/users';
+        method = 'POST';
+        if (!password) { toast('Password required', true); return; }
+    }
+
+    var res = await fetch(url, { method: method, headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()), body: JSON.stringify(body) });
+    var data = await res.json();
+    if (data.ok) { toast(data.message || 'OK'); closeUserModal(); loadAdminUsers(); checkPending(); }
+    else { toast((data.detail || data.message || t('toast_failed')), true); }
+}
+
+// Click outside modal to close
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'userModal') closeUserModal();
+});
+
+// ===== View navigation =====
+function goHome() { window.location.href = 'index.html'; }
+function goAdmin() {
+    document.getElementById('viewAdmin').style.display = 'block';
+    setupAdminView();
+    loadAdminUsers();
+}
+
+function setupAdminView() {
+    // reviewers can view the page (approve) but cannot manage users
+    var addBtn = document.getElementById('addUserBtn');
+    if (addBtn) addBtn.style.display = (authRole === 'admin') ? 'inline-block' : 'none';
+}
+
+function refreshUI() {
+    if (authRole === 'admin' || authRole === 'reviewer') loadAdminUsers();
+}
+
+// After login / on load: admin or reviewer. Redirect others back to home.
+function onAppReady() {
+    if (authRole !== 'admin' && authRole !== 'reviewer') { window.location.href = 'index.html'; return; }
+    goAdmin();
+}
+
+// When the user logs in FROM the users page (was logged out), load the list.
+function onAfterAuth() {
+    if (authRole !== 'admin' && authRole !== 'reviewer') { window.location.href = 'index.html'; return; }
+    goAdmin();
+}
+
+initApp();
+</script>
+</body>
+</html>

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="audit_title">审计日志</title>
+    <link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div class="login-container" id="loginScreen">
+    <div class="login-card">
+        <h1 data-i18n="h1">📁 文件服务器</h1>
+        <div class="sub" data-i18n="login_sub">登录以继续</div>
+        <div class="error" id="loginError"></div>
+        <label data-i18n="username_ph">用户名</label>
+        <input type="text" id="loginUser" data-i18n-placeholder="username_ph" placeholder="用户名">
+        <label data-i18n="password_ph">密码</label>
+        <input type="password" id="loginPass" data-i18n-placeholder="password_ph" placeholder="密码">
+        <div id="loginNickRow" style="display:none">
+            <label data-i18n="nickname_label">昵称</label>
+            <input type="text" id="loginNick" data-i18n-placeholder="nickname_label" placeholder="昵称（可选）">
+        </div>
+        <button class="btn-login" id="loginSubmitBtn" onclick="doAuth()" data-i18n="login">登录</button>
+        <div class="switch" onclick="switchAuthMode()" id="loginSwitch" data-i18n="no_account">没有账号? 注册</div>
+        <div class="skip" onclick="skipLogin()" data-i18n="skip_login">跳过, 以匿名身份进入</div>
+    </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div class="app-container" id="appScreen">
+    <div class="app-header">
+        <h1 data-i18n="h1">📁 文件服务器</h1>
+        <div class="header-right">
+            <span class="user" id="userDisplay"></span>
+            <button class="logout-btn" onclick="doLogout()" data-i18n="logout">退出</button>
+            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
+            <div class="lang-wrapper">
+                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
+                <div class="lang-menu" id="langMenu">
+                    <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
+                    <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
+                    <button class="lang-menu-item" data-lang="ru" onclick="switchToLang('ru')">Русский</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== AUDIT VIEW ===== -->
+    <div id="viewAudit">
+        <div class="back-row">
+            <button class="back-btn" onclick="goHome()" data-i18n="back_home">← 返回首页</button>
+        </div>
+
+        <div class="section-header">
+            <h2 data-i18n="audit_title">审计日志</h2>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <!-- Scope toggle: admins/reviewers only; regular users are always "self" -->
+                <div class="scope-toggle" id="scopeToggle" style="display:none">
+                    <button class="scope-btn active" id="btnScopeAll" onclick="setScope('all')" data-i18n="audit_scope_all">全部用户</button>
+                    <button class="scope-btn" id="btnScopeSelf" onclick="setScope('self')" data-i18n="audit_scope_self">仅本人</button>
+                </div>
+                <select id="auditAction" class="audit-filter-input" onchange="loadAuditPublic()">
+                    <option value="">全部动作</option>
+                    <option value="login">login</option>
+                    <option value="logout">logout</option>
+                    <option value="register">register</option>
+                    <option value="upload">upload</option>
+                    <option value="upload_multiple">upload_multiple</option>
+                    <option value="download">download</option>
+                    <option value="approve">approve</option>
+                    <option value="reject">reject</option>
+                    <option value="delete">delete</option>
+                    <option value="delete_user">delete_user</option>
+                    <option value="create_user">create_user</option>
+                    <option value="update_user">update_user</option>
+                    <option value="password_change">password_change</option>
+                    <option value="deactivate">deactivate</option>
+                </select>
+                <input id="auditSearch" class="audit-filter-input" data-i18n-placeholder="audit_search_ph" placeholder="搜索目标…" onkeydown="if(event.key==='Enter')loadAuditPublic()">
+                <button class="btn btn-xs" onclick="loadAuditPublic()" style="color:var(--accent);border-color:var(--accent)" data-i18n="audit_refresh">刷新</button>
+                <button class="btn btn-xs" onclick="exportAuditCSV()" data-i18n="audit_export">导出CSV</button>
+            </div>
+        </div>
+
+        <!-- Username filter (admins/reviewers only) -->
+        <div id="userFilterRow" style="display:none;margin-bottom:10px">
+            <input id="userFilter" class="audit-filter-input" data-i18n-placeholder="audit_filter_user" placeholder="筛选用户" onkeydown="if(event.key==='Enter')loadAuditPublic()">
+        </div>
+
+        <!-- Self-only notice for regular users -->
+        <div id="selfNote" class="self-note" style="display:none">
+            🔒 <span data-i18n="audit_self_note">仅显示本人操作记录（管理员可查看全部）</span>
+        </div>
+
+        <div class="file-list" id="auditList">
+            <div class="empty" data-i18n="loading">加载中...</div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/util.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/toast.js"></script>
+<script src="/static/js/auth.js"></script>
+<script src="/static/js/pending.js"></script>
+<script src="/static/js/init.js"></script>
+<script>
+// ==================== Audit log (public, permission-scoped) ====================
+var _auditCache = [];
+var _canViewAll = false;
+
+function goHome() { window.location.href = 'index.html'; }
+
+// The audit page requires a real logged-in account. Anonymous guests (who
+// reached it via deep link / history) are bounced back to the login screen.
+function onAppReady() {
+    if (!authToken || authRole === 'anonymous') {
+        window.location.href = 'index.html';
+        return;
+    }
+    _canViewAll = (authRole === 'admin' || authRole === 'reviewer');
+    setupAuditPage();
+    loadAuditPublic();
+}
+
+function setupAuditPage() {
+    var scopeToggle = document.getElementById('scopeToggle');
+    var userFilter = document.getElementById('userFilterRow');
+    var selfNote = document.getElementById('selfNote');
+    if (_canViewAll) {
+        if (scopeToggle) scopeToggle.style.display = 'inline-flex';
+        if (userFilter) userFilter.style.display = 'block';
+        if (selfNote) selfNote.style.display = 'none';
+    } else {
+        if (scopeToggle) scopeToggle.style.display = 'none';
+        if (userFilter) userFilter.style.display = 'none';
+        if (selfNote) selfNote.style.display = 'block';
+    }
+}
+
+function setScope(s) {
+    var btnAll = document.getElementById('btnScopeAll');
+    var btnSelf = document.getElementById('btnScopeSelf');
+    if (btnAll) btnAll.classList.toggle('active', s === 'all');
+    if (btnSelf) btnSelf.classList.toggle('active', s === 'self');
+    loadAuditPublic();
+}
+
+async function loadAuditPublic(retry) {
+    var list = document.getElementById('auditList');
+    if (!list) return;
+    var params = new URLSearchParams();
+    params.set('page', '1');
+    params.set('page_size', '100');
+    var action = document.getElementById('auditAction');
+    if (action && action.value) params.set('action', action.value);
+    var search = document.getElementById('auditSearch');
+    if (search && search.value.trim()) params.set('search', search.value.trim());
+
+    // For non-admins the server ignores every filter and returns only their
+    // own rows, so we never even send a `user` param. Admins may narrow by
+    // account (all vs self toggle, or a specific username).
+    if (_canViewAll) {
+        var wantSelf = document.getElementById('btnScopeSelf') &&
+                       document.getElementById('btnScopeSelf').classList.contains('active');
+        if (wantSelf) {
+            params.set('user_filter', authUser);
+        } else {
+            var uf = document.getElementById('userFilter');
+            if (uf && uf.value.trim()) params.set('user_filter', uf.value.trim());
+        }
+    }
+
+    try {
+        var res = await fetch('/api/audit/logs?' + params.toString(), { headers: getAuthHeaders() });
+        if (!res.ok) {
+            if (!retry) { return loadAuditPublic(true); }
+            list.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
+            return;
+        }
+        var data = await res.json();
+        _auditCache = data.logs || [];
+        renderAuditList(_auditCache);
+    } catch (e) {
+        list.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
+    }
+}
+
+function renderAuditList(logs) {
+    var list = document.getElementById('auditList');
+    if (!logs.length) {
+        list.innerHTML = '<div class="empty">' + (t('no_audit') || 'No audit records') + '</div>';
+        return;
+    }
+    var html = '<div class="audit-row audit-head">' +
+        '<span>' + (t('audit_time') || 'Time') + '</span>' +
+        '<span>' + (t('audit_user') || 'User') + '</span>' +
+        '<span>' + (t('audit_action') || 'Action') + '</span>' +
+        '<span>' + (t('audit_target') || 'Target') + '</span>' +
+        '<span>' + (t('audit_ip') || 'IP') + '</span>' +
+        '</div>';
+    logs.forEach(function(l) {
+        var tag = auditTag(l.action);
+        html += '<div class="audit-row">' +
+            '<span class="audit-time">' + escHtml(l.created_at || '') + '</span>' +
+            '<span>' + escHtml(l.username || '') + '</span>' +
+            '<span><span class="tag ' + tag.cls + '">' + escHtml(tag.label) + '</span></span>' +
+            '<span class="audit-target" title="' + escHtml(l.target || '') + '">' + escHtml(l.target || '') + '</span>' +
+            '<span>' + escHtml(l.ip || '') + '</span>' +
+            '</div>';
+    });
+    list.innerHTML = html;
+}
+
+function auditTag(action) {
+    var a = (action || '').toLowerCase();
+    var curLang = (localStorage.getItem('fs_lang') || 'zh');
+    var labels = {
+        zh: {login:'登录', logout:'登出', approve:'通过', reject:'拒绝', delete:'删除', upload:'上传', download:'下载', register:'注册', password:'改密', create:'创建', update:'更新', deactivate:'注销', batch:'批量'},
+        en: {login:'Login', logout:'Logout', approve:'Approve', reject:'Reject', delete:'Delete', upload:'Upload', download:'Download', register:'Register', password:'Pwd', create:'Create', update:'Update', deactivate:'Deactivate', batch:'Batch'},
+        ru: {login:'Вход', logout:'Выход', approve:'ОК', reject:'Откл.', delete:'Удал.', upload:'Загр.', download:'Выгр.', register:'Рег.', password:'Пароль', create:'Созд.', update:'Изм.', deactivate:'Удал.', batch:'Пакет'}
+    };
+    var lbl = (labels[curLang] || labels.zh)[a] || action || '—';
+    var cls = 'tag-neutral';
+    if (a === 'approve') cls = 'tag-ok';
+    else if (a === 'reject' || a.indexOf('delete') >= 0) cls = 'tag-danger';
+    else if (a.indexOf('password') >= 0 || a === 'register' || a === 'deactivate') cls = 'tag-warn';
+    else if (a === 'upload' || a === 'download' || a === 'login' || a === 'logout') cls = 'tag-info';
+    return { cls: cls, label: lbl };
+}
+
+function exportAuditCSV() {
+    if (!_auditCache || !_auditCache.length) { toast(t('no_audit') || 'No records'); return; }
+    var headers = ['time', 'user', 'action', 'target', 'ip'];
+    var csv = [headers.join(',')].concat(_auditCache.map(function(l) {
+        return [l.created_at || '', l.username || '', l.action || '', l.target || '', l.ip || '']
+            .map(csvCell).join(',');
+    })).join('\n');
+    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'audit_log_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+initApp();
+</script>
+</body>
+</html>

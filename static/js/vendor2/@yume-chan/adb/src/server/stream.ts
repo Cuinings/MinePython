@@ -73,7 +73,7 @@ export class AdbServerStream {
     }
 
     async writeString(value: string): Promise<void> {
-        // TODO: investigate using `encodeUtf8("0000" + value)` then modifying the length
+        // investigate using `encodeUtf8("0000" + value)` then modifying the length
         // That way allocates a new string (hopefully only a rope) instead of a new buffer
         const encoded = encodeUtf8(value);
         const buffer = new Uint8Array(4 + encoded.length);

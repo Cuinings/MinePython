@@ -222,7 +222,7 @@ export class AdbPacketDispatcher implements Closeable {
             return;
         }
 
-        // TODO: adb: is double closing an socket a catastrophic error?
+        // adb: is double closing an socket a catastrophic error?
         // If the client sends two `CLSE` packets for one socket,
         // the device may also respond with two `CLSE` packets.
     }
@@ -278,7 +278,7 @@ export class AdbPacketDispatcher implements Closeable {
     #sendOkay(localId: number, remoteId: number, ackBytes: number) {
         let payload: Uint8Array;
         if (this.options.initialDelayedAckBytes !== 0) {
-            // TODO: try reusing this buffer to reduce memory allocation
+            // try reusing this buffer to reduce memory allocation
             // However, that requires blocking reentrance of `sendOkay`, which might be more expensive
             payload = new Uint8Array(4);
             setUint32LittleEndian(payload, 0, ackBytes);

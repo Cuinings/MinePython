@@ -62,7 +62,7 @@ export async function framebuffer(adb) {
     }
     switch (version) {
         case 1:
-            // TODO: AdbFrameBuffer: does all v1 responses uses the same color space? Add it so the command returns same format for all versions.
+            // AdbFrameBuffer: does all v1 responses uses the same color space? Add it so the command returns same format for all versions.
             return await AdbFrameBufferV1.deserialize(stream);
         case 2:
             return await AdbFrameBufferV2.deserialize(stream);

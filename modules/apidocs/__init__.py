@@ -9,11 +9,11 @@
 from fastapi.responses import RedirectResponse
 
 from modules.common import create_app
+from modules.user.config import APP_NAME as SERVICE_NAME
 
-SERVICE_NAME = "MinePython"
 SERVICE_VERSION = "4.6.0"
 SERVICE_DESCRIPTION = (
-    "MinePython API 文档门户 —— 聚合各模块的 OpenAPI 文档，提供交互式 Swagger / ReDoc。"
+    f"{SERVICE_NAME} API 文档门户 —— 聚合各模块的 OpenAPI 文档，提供交互式 Swagger / ReDoc。"
 )
 
 

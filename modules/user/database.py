@@ -108,6 +108,11 @@ class User(Base):
     created_at: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("(datetime('now','localtime'))")
     )
+    # Last login source IP (set on each successful login). Shown in the user's
+    # own profile and the admin user-management list.
+    last_login_ip: Mapped[str] = mapped_column(
+        String, nullable=False, default="", server_default=text("''")
+    )
 
 
 class SessionToken(Base):
@@ -218,6 +223,7 @@ PERMISSIONS: dict[str, str] = {
     "user:approve": "审批用户注册",
     "audit:view": "查看全部审计日志（管理员 / 审核员）",
     "audit:view_self": "查看本人审计记录（所有登录用户）",
+    "file:adb_install": "通过 ADB 把 APK 安装到设备",
 }
 
 # Role -> (description, [permissions]). Seeded on startup; kept in sync.
@@ -225,16 +231,16 @@ ROLES: dict[str, tuple[str, list[str]]] = {
     "admin": ("超级管理员，拥有全部权限", list(PERMISSIONS.keys())),
     "reviewer": (
         "审核员：可审批用户、查看审计、管理本人文件",
-        ["file:list", "file:upload", "file:download", "file:delete_self",
+        ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install",
          "user:read", "user:approve", "audit:view", "audit:view_self"],
     ),
     "uploader": (
         "上传者：可上传 / 下载 / 删除本人文件",
-        ["file:list", "file:upload", "file:download", "file:delete_self", "audit:view_self"],
+        ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install", "audit:view_self"],
     ),
     "user": (
         "普通用户：可上传 / 下载 / 删除本人文件",
-        ["file:list", "file:upload", "file:download", "file:delete_self", "audit:view_self"],
+        ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install", "audit:view_self"],
     ),
     "anonymous": (
         "匿名访客：仅可浏览与下载文件（只读，无需登录）",
@@ -299,6 +305,7 @@ def _migrate_legacy_schema() -> None:
             ("is_default", "INTEGER NOT NULL DEFAULT 0"),
             ("force_pw_change", "INTEGER NOT NULL DEFAULT 0"),
             ("password_plain", "TEXT"),
+            ("last_login_ip", "TEXT NOT NULL DEFAULT ''"),
         ]:
             if col not in existing:
                 try:

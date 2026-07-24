@@ -10,6 +10,20 @@ var authToken = localStorage.getItem('fs_token') || '';
 var authUser = localStorage.getItem('fs_user') || '';
 var authRole = localStorage.getItem('fs_role') || '';
 var authNick = localStorage.getItem('fs_nick') || '';
+// Whether the current account is the protected bootstrap/default account.
+// Default accounts cannot be deactivated, so the UI hides that entry for them.
+var authIsDefault = localStorage.getItem('fs_isdef') === '1';
+// The configured bootstrap admin username (exposed by /api/auth/me). Kept in
+// memory only: if the DB is_default flag is missing on a legacy database, the
+// UI can still fall back to matching the known built-in admin name.
+var authBootstrapAdmin = 'admin';
+
+// Keep the default-account flag in sync with a fresh profile payload.
+function applyAccountFlags(d) {
+    authIsDefault = !!(d && d.is_default);
+    if (d && d.admin_username) authBootstrapAdmin = d.admin_username;
+    try { localStorage.setItem('fs_isdef', authIsDefault ? '1' : '0'); } catch (e) {}
+}
 
 // The auth UI now lives on standalone pages (login.html / register.html).
 // Anything that used to reveal the inline login screen now bounces there.
@@ -24,23 +38,31 @@ function showApp() {
     if (app) app.classList.add('active');
     var ud = document.getElementById('userDisplay');
     if (ud) ud.textContent = authNick || authUser || t('anonymous');
-    // User-management entry is for admin + reviewer (home page only)
-    var homeUsersCard = document.getElementById('homeUsersCard');
-    if (homeUsersCard) homeUsersCard.style.display = (authRole === 'admin' || authRole === 'reviewer') ? 'block' : 'none';
+    // The "用户中心" entry is shown to every authenticated user (including
+    // anonymous guests, who are bounced back to home from the center page).
+    // Hide it only for the truly unauthenticated corner cases.
     // Audit-log entry is for ANY authenticated user (but NOT anonymous guests).
     var homeAuditCard = document.getElementById('homeAuditCard');
     if (homeAuditCard) homeAuditCard.style.display = (authRole && authRole !== 'anonymous') ? 'block' : 'none';
     if (authRole === 'admin' || authRole === 'reviewer') startPendingPoll();
 }
 
+// Navigate to the User Center. Optional `tab` deep-links to a panel
+// ('userinfo' | 'usermgmt' | 'settings'), e.g. from the pending-approvals bar.
+function goUserCenter(tab) {
+    var url = 'users.html' + (tab ? ('?tab=' + tab) : '');
+    window.location.href = url;
+}
+
 function skipLogin() {
     // Enter as an anonymous (read-only guest) visitor. Clear any stale
     // credentials, mark the anonymous session, and jump straight into the app.
-    authToken = ''; authUser = ''; authNick = ''; authRole = 'anonymous';
+    authToken = ''; authUser = ''; authNick = ''; authRole = 'anonymous'; authIsDefault = false;
     localStorage.removeItem('fs_token');
     localStorage.removeItem('fs_user');
     localStorage.removeItem('fs_role');
     localStorage.removeItem('fs_nick');
+    localStorage.removeItem('fs_isdef');
     localStorage.setItem('fs_anon', '1');
     stopPendingPoll();
     window.location.href = 'index.html';
@@ -80,6 +102,7 @@ async function doLogin() {
             authUser = u;
             authRole = data.role || '';
             authNick = data.nickname || '';
+            applyAccountFlags(data);
             localStorage.setItem('fs_token', authToken);
             localStorage.setItem('fs_user', authUser);
             localStorage.setItem('fs_role', authRole);
@@ -123,6 +146,7 @@ async function doRegister() {
             authUser = u;
             authRole = data.role || '';
             authNick = data.nickname || '';
+            applyAccountFlags(data);
             localStorage.setItem('fs_token', authToken);
             localStorage.setItem('fs_user', authUser);
             localStorage.setItem('fs_role', authRole);
@@ -149,14 +173,14 @@ function showForcePwChange() {
     div.id = 'forcePwModal';
     div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999;';
     div.innerHTML =
-        '<div style="background:#fff;padding:24px;border-radius:12px;width:340px;max-width:92%;box-shadow:0 8px 30px rgba(0,0,0,.2);">' +
-        '<h3 style="margin:0 0 8px;font-size:16px;">请修改默认密码</h3>' +
-        '<p style="font-size:13px;color:#666;margin:0 0 14px;line-height:1.5;">出于安全考虑，首次登录必须修改默认密码后才能继续使用。</p>' +
-        '<input id="fpwOld" type="password" placeholder="当前密码" style="width:100%;padding:9px;margin-bottom:8px;box-sizing:border-box;border:1px solid #ccc;border-radius:8px;">' +
-        '<input id="fpwNew" type="password" placeholder="新密码" style="width:100%;padding:9px;margin-bottom:8px;box-sizing:border-box;border:1px solid #ccc;border-radius:8px;">' +
-        '<input id="fpwNew2" type="password" placeholder="确认新密码" style="width:100%;padding:9px;margin-bottom:8px;box-sizing:border-box;border:1px solid #ccc;border-radius:8px;">' +
-        '<div id="fpwErr" style="color:#c0392b;font-size:12px;min-height:16px;margin-bottom:6px;"></div>' +
-        '<button id="fpwSubmit" style="width:100%;padding:10px;background:#185FA5;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;">修改密码</button>' +
+        '<div class="modal-card" style="width:340px;max-width:92%;padding:24px">' +
+        '<h3 style="margin:0 0 8px;font-size:16px;color:var(--text)">请修改默认密码</h3>' +
+        '<p style="font-size:13px;color:var(--dim);margin:0 0 14px;line-height:1.5;">出于安全考虑，首次登录必须修改默认密码后才能继续使用。</p>' +
+        '<input id="fpwOld" type="password" placeholder="当前密码">' +
+        '<input id="fpwNew" type="password" placeholder="新密码">' +
+        '<input id="fpwNew2" type="password" placeholder="确认新密码">' +
+        '<div id="fpwErr" style="color:var(--danger);font-size:12px;min-height:16px;margin-bottom:6px;"></div>' +
+        '<button id="fpwSubmit" style="width:100%;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:var(--r-sm);cursor:pointer;font-size:14px">修改密码</button>' +
         '</div>';
     document.body.appendChild(div);
     document.getElementById('fpwSubmit').addEventListener('click', submitForcePwChange);
@@ -194,11 +218,12 @@ async function submitForcePwChange() {
 
 function doLogout() {
     var tkn = authToken;
-    authToken = ''; authUser = ''; authRole = ''; authNick = '';
+    authToken = ''; authUser = ''; authRole = ''; authNick = ''; authIsDefault = false;
     localStorage.removeItem('fs_token');
     localStorage.removeItem('fs_user');
     localStorage.removeItem('fs_role');
     localStorage.removeItem('fs_nick');
+    localStorage.removeItem('fs_isdef');
     localStorage.removeItem('fs_anon');
     stopPendingPoll();
     if (tkn) {
@@ -210,11 +235,12 @@ function doLogout() {
 // Called when the server rejects the current token (401). Clears local state
 // and returns to the login screen instead of showing a misleading message.
 function forceLogout(reason) {
-    authToken = ''; authUser = ''; authRole = ''; authNick = '';
+    authToken = ''; authUser = ''; authRole = ''; authNick = ''; authIsDefault = false;
     localStorage.removeItem('fs_token');
     localStorage.removeItem('fs_user');
     localStorage.removeItem('fs_role');
     localStorage.removeItem('fs_nick');
+    localStorage.removeItem('fs_isdef');
     localStorage.removeItem('fs_anon');
     stopPendingPoll();
     showLogin();

@@ -14,7 +14,7 @@
         <h1 data-i18n="h1">📁 MinePython</h1>
         <div class="header-right">
             <span class="user" id="userDisplay"></span>
-            <button class="logout-btn" onclick="doLogout()" data-i18n="logout">退出</button>
+            <button class="ucenter-btn" onclick="goUserCenter()" data-i18n="ucenter">用户中心</button>
             <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
             <div class="lang-wrapper">
                 <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
@@ -31,7 +31,7 @@
     <div class="pending-bar" id="pendingBar">
         <span class="count" id="pendingCount"></span>
         <span class="users" id="pendingUsers"></span>
-        <button class="btn-approve" onclick="goAdmin()" data-i18n="view_approvals">查看审批</button>
+        <button class="btn-approve" onclick="goUserCenter('usermgmt')" data-i18n="view_approvals">查看审批</button>
     </div>
 
     <!-- ===== HOME VIEW (module entries) ===== -->
@@ -43,15 +43,15 @@
                     <div class="home-title" data-i18n="nav_files">文件管理</div>
                     <div class="home-desc" data-i18n="home_files_desc">上传、浏览、搜索、下载与管理文件</div>
                 </div>
-                <div class="home-card" id="homeUsersCard" onclick="goAdmin()" style="display:none">
-                    <div class="home-icon">👥</div>
-                    <div class="home-title" data-i18n="nav_users">用户管理</div>
-                    <div class="home-desc" data-i18n="home_users_desc">审批注册申请、管理账号与权限</div>
-                </div>
                 <div class="home-card" id="homeAuditCard" onclick="goAudit()" style="display:none">
                     <div class="home-icon">🛡️</div>
                     <div class="home-title" data-i18n="nav_audit">审计日志</div>
                     <div class="home-desc" data-i18n="home_audit_desc">查看本人操作记录与安全审计（管理员可见全部）</div>
+                </div>
+                <div class="home-card" onclick="goSettings()">
+                    <div class="home-icon">⚙️</div>
+                    <div class="home-title" data-i18n="settings">设置</div>
+                    <div class="home-desc" data-i18n="home_settings_desc">个性化与系统偏好设置</div>
                 </div>
                 <div class="home-card" onclick="goApi()">
                     <div class="home-icon">🔌</div>
@@ -79,8 +79,9 @@
         var vh = document.getElementById('viewHome'); if (vh) vh.style.display = 'block';
     }
     function goFiles() { window.location.href = 'files.html'; }
-    function goAdmin() { window.location.href = 'users.html'; }
+    function goUserCenter(tab) { window.location.href = 'users.html' + (tab ? ('?tab=' + tab) : ''); }
     function goAudit() { window.location.href = 'audit.html'; }
+    function goSettings() { window.location.href = 'settings.html'; }
     function goApi() { window.location.href = '/api'; }
 
     // After login / on load, show the home module grid.

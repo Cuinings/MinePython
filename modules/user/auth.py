@@ -12,15 +12,17 @@ here so existing imports keep resolving.
 """
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from modules.user.database import SessionToken, get_db, get_permissions_for_role
+from modules.user.config import ADMIN_USERNAME
+from modules.user.database import SessionToken, User, get_db, get_permissions_for_role
 from modules.user.models import (
     AuthRequest,
     AuthResponse,
     DeactivateRequest,
     PasswordChangeRequest,
+    ProfileUpdateRequest,
 )
 from modules.user.services import user_service
 from modules.user.services.auth_service import (
@@ -140,17 +142,44 @@ async def logout(
 
 
 @router.get("/me")
-async def me(authorization: str = Header(default="")):
-    """Return the current user's profile and effective permissions."""
+async def me(
+    authorization: str = Header(default=""),
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    """Return the current user's profile and effective permissions.
+
+    Also refreshes ``last_login_ip`` from the current request so the profile and
+    admin list reflect the most recent source IP without requiring a fresh login.
+    """
     user = get_current_user(authorization)
     if not user:
         raise HTTPException(401, "Authentication required")
+
+    shown_ip = user.get("last_login_ip", "") or ""
+    ip = _client_ip(request)
+    if ip:
+        try:
+            target = db.execute(
+                select(User).where(User.id == user["id"])
+            ).scalar_one_or_none()
+            if target is not None:
+                if target.last_login_ip != ip:
+                    target.last_login_ip = ip
+                    db.commit()
+                shown_ip = target.last_login_ip
+        except Exception:
+            db.rollback()
+
     return {
         "ok": True,
         "username": user["username"],
         "nickname": user["nickname"],
         "role": user["role"],
         "status": user["status"],
+        "is_default": bool(user.get("is_default", False)),
+        "admin_username": ADMIN_USERNAME,
+        "last_login_ip": shown_ip or "",
         "permissions": sorted(get_permissions_for_role(user["role"])),
     }
 
@@ -183,3 +212,24 @@ async def deactivate_my_account(
     ip = _client_ip(request)
     result = user_service.deactivate_user(db, user["id"], ip)
     return AuthResponse(**result)
+
+
+@router.put("/me")
+async def update_my_profile(
+    body: ProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+    request: Request = None,
+):
+    """Update the caller's own profile (nickname, optional password change).
+
+    Any authenticated user may use this — it only touches the caller's own
+    row, never other accounts. Changing the password invalidates all sessions.
+    """
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    ip = _client_ip(request)
+    result = user_service.update_own_profile(
+        db, user["id"], body.nickname, body.old_password, body.new_password, ip
+    )
+    return result

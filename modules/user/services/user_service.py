@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from modules.user.config import ADMIN_USERNAME
 from modules.user.database import (
     ROLES,
     SessionToken,
@@ -36,6 +37,16 @@ def user_to_dict(user) -> dict:
     d = orm_to_dict(user)
     d["password_plain"] = _decrypt_plain(d.get("password_plain", ""))
     return d
+
+
+def _is_bootstrap_admin(user) -> bool:
+    """Return True if the user is the built-in bootstrap admin account.
+
+    Uses the DB ``is_default`` flag as the primary signal, but falls back to
+    matching the configured ``ADMIN_USERNAME``. This protects legacy databases
+    where the flag may not have been backfilled yet.
+    """
+    return bool(getattr(user, "is_default", False) or user.username == ADMIN_USERNAME)
 
 
 def invalidate_user_tokens(db: Session, user_id: int) -> None:
@@ -69,7 +80,11 @@ def register_user(db: Session, username: str, password: str, nickname: str, ip: 
     )
     db.commit()
     _audit_log("register", username, username, ip)
-    return {"ok": True, "message": "Registration submitted, pending admin approval"}
+    return {
+        "ok": True,
+        "message": "Registration submitted, pending admin approval",
+        "is_default": False,
+    }
 
 
 def create_user(db: Session, body: AdminUserRequest, ip: str) -> dict:
@@ -153,7 +168,7 @@ def delete_user(db: Session, user_id: int, admin: dict, ip: str) -> dict:
         raise HTTPException(404, "User not found")
     if str(user.id) == str(admin["id"]):
         raise HTTPException(400, "Cannot delete your own account")
-    if getattr(user, "is_default", False):
+    if _is_bootstrap_admin(user):
         raise HTTPException(400, "默认账号不可删除")
     invalidate_user_tokens(db, user.id)
     uname = user.username
@@ -188,13 +203,65 @@ def deactivate_user(db: Session, user_id: int, ip: str) -> dict:
     target = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
     if not target:
         raise HTTPException(404, "User not found")
-    if getattr(target, "is_default", False):
+    if _is_bootstrap_admin(target):
         raise HTTPException(400, "默认账号不可注销")
     target.status = "deactivated"
     invalidate_user_tokens(db, target.id)
     db.commit()
     _audit_log("deactivate", target.username, target.username, ip)
     return {"ok": True, "message": "账号已注销"}
+
+
+def update_own_profile(
+    db: Session,
+    user_id: int,
+    nickname: str | None = None,
+    old_password: str | None = None,
+    new_password: str | None = None,
+    ip: str = "",
+) -> dict:
+    """Update the caller's own profile (nickname, optional password change).
+
+    - ``nickname`` (non-empty) updates the display name without touching the
+      session, so the user stays logged in.
+    - ``new_password`` requires ``old_password`` and changes the password,
+      which (like :func:`change_password`) invalidates every session and
+      forces a re-login.
+    Returns a dict with an optional ``password_changed`` flag so the UI can
+    decide whether to bounce the user to login.
+    """
+    target = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    changed_nick = False
+    if nickname is not None and nickname.strip():
+        target.nickname = nickname.strip()
+        changed_nick = True
+
+    if new_password:
+        if not old_password or not _verify_pw(old_password, target.password):
+            raise HTTPException(400, "当前密码不正确")
+        if len(new_password) < 3:
+            raise HTTPException(400, "新密码太短")
+        target.password = _hash_pw(new_password)
+        target.password_plain = _encrypt_plain(new_password)
+        target.force_pw_change = False
+        invalidate_user_tokens(db, target.id)
+        db.commit()
+        _audit_log("password_change", target.username, target.username, ip)
+        return {
+            "ok": True,
+            "message": "资料已更新，密码已修改，请重新登录",
+            "password_changed": True,
+        }
+
+    if changed_nick:
+        db.commit()
+        _audit_log("update_profile", target.username, target.username, ip)
+        return {"ok": True, "message": "资料已更新"}
+
+    return {"ok": True, "message": "无变更"}
 
 
 def approve_user(db: Session, user_id: int, ip: str) -> dict:
@@ -241,7 +308,7 @@ def batch_user_action(db: Session, body: AdminBatchRequest, user: dict, ip: str)
             if str(target.id) == str(user["id"]):
                 failed.append({"id": uid, "error": "cannot delete self"})
                 continue
-            if getattr(target, "is_default", False):
+            if _is_bootstrap_admin(target):
                 failed.append({"id": uid, "error": "default account protected"})
                 continue
             invalidate_user_tokens(db, target.id)

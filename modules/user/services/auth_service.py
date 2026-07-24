@@ -153,6 +153,11 @@ def login_user(db: Session, username: str, password: str, ip: str, device: str =
     clear_login_failures(username)
     clear_ip_failures(ip)
 
+    # Record the source IP of this successful login so it can be surfaced in the
+    # user's own profile and the admin user-management list.
+    user.last_login_ip = ip
+    db.commit()
+
     token = mint_token(user, device=device)
     _audit_log("login", user.username, user.username, ip)
 
@@ -165,6 +170,8 @@ def login_user(db: Session, username: str, password: str, ip: str, device: str =
         "nickname": user.nickname,
         "permissions": perms,
         "require_password_change": getattr(user, "force_pw_change", False),
+        "is_default": bool(getattr(user, "is_default", False)),
+        "admin_username": _cfg.ADMIN_USERNAME,
     }
 
 

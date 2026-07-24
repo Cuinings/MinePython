@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from modules.user import config as user_config
@@ -68,7 +68,9 @@ def _register_page(app: FastAPI, path: str, name: str) -> None:
 
     @app.get(path, response_class=HTMLResponse)
     async def page():
-        return HTMLResponse(content=_load_html(name))
+        # no-store: the inlined import map lives inside the HTML, so the page
+        # itself must never be cached or ADB install keeps using a stale map.
+        return HTMLResponse(content=_load_html(name), headers={"Cache-Control": "no-store"})
 
     page.__name__ = f"page_{name}"
 
@@ -113,6 +115,38 @@ def create_app(
         allow_headers=["*"],
     )
 
+    # Force "Cache-Control: no-store" on EVERY response (HTML pages,
+    # /static mount, API JSON). This is what actually stops the browser
+    # from caching i18n.js / webadb2.bundle.js / vendor2 ES modules
+    # and re-running a stale inlined import map — which made WebUSB ADB
+    # install fail with "缺少 Adb / AdbWebUsbBackend". Starlette's
+    # StaticFiles does not accept a `headers` kwarg here, so a global
+    # middleware is the reliable way to set it.
+    class _NoStoreMiddleware:
+        def __init__(self, app):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] != "http":
+                await self.app(scope, receive, send)
+                return
+
+            async def _send(message):
+                if message["type"] == "http.response.start":
+                    headers = message.get("headers") or []
+                    # drop any pre-existing cache-control, then set no-store
+                    headers = [
+                        (k, v) for (k, v) in headers
+                        if k.lower() != b"cache-control"
+                    ]
+                    headers.append((b"cache-control", b"no-store"))
+                    message["headers"] = headers
+                await send(message)
+
+            await self.app(scope, receive, _send)
+
+    app.add_middleware(_NoStoreMiddleware)
+
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
         start = time.time()
@@ -154,9 +188,19 @@ def create_app(
         else:
             response.headers.setdefault("X-Frame-Options", "DENY")
             frame_ancestors = "frame-ancestors 'none';"
+        # connect-src must allow the same origins the API accepts (CORS), so
+        # that fetch()/XHR from the web UI is not blocked by the browser when
+        # the page is opened via 127.0.0.1 while the API is on localhost (or
+        # vice-versa). Without this, the browser silently rejects the request
+        # with a "Failed to fetch" network error even though the server is fine.
+        connect_src = "connect-src 'self'" + "".join(
+            f" {o}" for o in _CORS_ORIGINS
+        )
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; "
+            + connect_src
+            + "; "
             "img-src 'self' data: https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
             "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
@@ -178,14 +222,68 @@ def create_app(
     for router in routers:
         app.include_router(router)
 
-    # Static assets (common.css + js/ modules)
+    # Static assets (common.css + js/ modules).
+    # NOTE: StaticFiles does NOT accept a `headers` kwarg in this Starlette
+    # build, so the no-store header is injected globally by the
+    # NoStoreMiddleware defined below (covers the /static mount AND the
+    # HTML pages). Without it the browser caches i18n.js /
+    # webadb2.bundle.js / vendor2 ES modules and keeps running a stale
+    # inlined import map, which makes WebUSB ADB install fail with
+    # "缺少 Adb / AdbWebUsbBackend".
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    # Explicit handler for /static/js/** — serves the browser-side WebUSB ADB
+    # bundle (webadb.bundle.js) and the localised ya-webadb vendor ES modules.
+    # Starlette's StaticFiles mount intermittently returns 404 for these files
+    # on some Windows/Python builds even though the file exists on disk, which
+    # breaks the dynamic import(). Serving them via FileResponse sidesteps that
+    # and guarantees the ES module graph resolves. Registered as a route (above
+    # the mount) so it takes precedence for everything under /static/js/.
+    _JS_MIME = {
+        ".js": "text/javascript",
+        ".mjs": "text/javascript",
+        ".json": "application/json",
+        ".css": "text/css",
+        ".map": "application/json",
+    }
+
+    @app.get("/static/js/{filepath:path}")
+    async def serve_static_js(filepath: str):
+        target = (STATIC_DIR / "js" / filepath).resolve()
+        base = STATIC_DIR.resolve()
+        # Prevent path traversal outside the static dir.
+        if target != base and not str(target).startswith(str(base) + os.sep):
+            return JSONResponse(status_code=403, content={"detail": "forbidden"})
+        if not target.is_file():
+            return JSONResponse(status_code=404, content={"detail": "not found: " + filepath})
+        ext = target.suffix.lower()
+        media = _JS_MIME.get(ext, "application/octet-stream")
+        # no-store (not no-cache) — dev assets must never be served from a
+        # browser cache, otherwise a stale inlined import map in files.html
+        # keeps pointing at the deprecated vendor/ build and ADB install fails.
+        return FileResponse(str(target), media_type=media, headers={"Cache-Control": "no-store"})
+
+    # Public branding endpoint — the web UI fetches this on load to render the
+    # project name dynamically (page <title> + header), so rebranding needs only
+    # the APP_NAME env var. No auth: the name is public and non-sensitive.
+    @app.get("/api/app-info")
+    async def app_info():
+        # Read the live branding name (not app.title, which is fixed at startup)
+        # so an admin rename via /api/admin/site shows up without a restart.
+        bundle_path = STATIC_DIR / "js" / "webadb.bundle.js"
+        return {
+            "name": user_config.APP_NAME,
+            "version": app.version,
+            "static_dir": str(STATIC_DIR),
+            "webadb_bundle_exists": bundle_path.exists(),
+            "webadb_bundle_size": bundle_path.stat().st_size if bundle_path.exists() else 0,
+        }
 
     # Main app shell at "/" and "/index.html"
     @app.get("/", response_class=HTMLResponse)
     @app.get("/index.html", response_class=HTMLResponse)
     async def index():
-        return HTMLResponse(content=_load_html("index.html"))
+        return HTMLResponse(content=_load_html("index.html"), headers={"Cache-Control": "no-store"})
 
     # Per-module extra pages (e.g. /files.html, /users.html, /audit.html)
     for path, name in extra_pages or []:
@@ -203,7 +301,7 @@ def create_app(
                 .replace("__VERSION__", app.version)
                 .replace("__DESCRIPTION__", app.description or "")
             )
-            return HTMLResponse(content=html)
+            return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
 
     # ------------------------------------------------------------------
     # Background: periodically purge expired session tokens (ARCH-3)

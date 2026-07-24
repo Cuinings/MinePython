@@ -11,6 +11,7 @@ stays free of any reverse dependency on the files module.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,7 @@ from modules.user.models import (
     PendingResponse,
     UserListResponse,
 )
+from modules.user import config
 from modules.user.services import user_service
 from modules.user.utils import _audit_log, _client_ip
 
@@ -145,3 +147,35 @@ async def admin_audit_log(
         .all()
     )
     return {"logs": [orm_to_dict(r) for r in rows]}
+
+
+# ---------------------------------------------------------------------------
+# Site / branding name (admin-only runtime rebrand)
+# ---------------------------------------------------------------------------
+class SiteNameRequest(BaseModel):
+    name: str
+
+
+@router.get("/site")
+async def admin_get_site(_: dict = Depends(require_admin)):
+    """Return the current site/branding display name (admin only)."""
+    return {"name": config.APP_NAME}
+
+
+@router.put("/site")
+async def admin_set_site(
+    body: SiteNameRequest,
+    admin: dict = Depends(require_admin),
+    request: Request = None,
+):
+    """Update the site/branding display name (admin only).
+
+    Updates the running process immediately and persists to .env so the change
+    survives a restart. Emits an audit log entry.
+    """
+    try:
+        new_name = config.set_app_name(body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    _audit_log("update_site", admin["username"], new_name, _client_ip(request))
+    return {"ok": True, "name": new_name}

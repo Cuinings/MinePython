@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="title">MinePython</title>
+    <title data-i18n="ucenter">用户中心</title>
     <link rel="stylesheet" href="/static/common.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
         <h1 data-i18n="h1">📁 MinePython</h1>
         <div class="header-right">
             <span class="user" id="userDisplay"></span>
-            <button class="logout-btn" onclick="doLogout()" data-i18n="logout">退出</button>
+            <button class="back-btn" onclick="goHome()" data-i18n="back_home">← 返回首页</button>
             <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
             <div class="lang-wrapper">
                 <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
@@ -27,19 +27,28 @@
         </div>
     </div>
 
-    <!-- Pending approval notification (admin only) -->
+    <!-- Pending approval notification (admin / reviewer only) -->
     <div class="pending-bar" id="pendingBar">
         <span class="count" id="pendingCount"></span>
         <span class="users" id="pendingUsers"></span>
-        <button class="btn-approve" onclick="goAdmin()" data-i18n="view_approvals">查看审批</button>
+        <button class="btn-approve" onclick="goUserCenter('usermgmt')" data-i18n="view_approvals">查看审批</button>
     </div>
 
-    <!-- ===== ADMIN VIEW ===== -->
-    <div id="viewAdmin" style="display:none">
-        <div class="back-row">
-            <button class="back-btn" onclick="goHome()" data-i18n="back_home">← 返回首页</button>
-        </div>
+    <!-- ===== User Center tab bar (permission-scoped) ===== -->
+    <div class="uc-tabs" id="ucTabs">
+        <button class="uc-tab active" id="tabUserInfo" onclick="switchUCTab('userinfo')" data-i18n="user_info">用户信息</button>
+        <button class="uc-tab" id="tabUserMgmt" onclick="switchUCTab('usermgmt')" style="display:none" data-i18n="user_mgmt">用户管理</button>
+    </div>
 
+    <!-- ===== Panel: 用户信息 (all authenticated users) ===== -->
+    <div class="uc-panel active" id="panelUserInfo">
+        <div class="uc-info-card" id="ucInfoCard">
+            <div class="empty" data-i18n="loading">加载中...</div>
+        </div>
+    </div>
+
+    <!-- ===== Panel: 用户管理 (admin / reviewer only) ===== -->
+    <div class="uc-panel" id="panelUserMgmt">
         <!-- Users panel -->
         <div id="panelUsers">
             <div class="section-header">
@@ -62,33 +71,54 @@
         </div>
     </div>
 
-    <!-- ===== MODAL: Add / Edit User ===== -->
-    <div class="modal-overlay" id="userModal">
-        <div class="modal-card">
-            <h2 id="userModalTitle">添加用户</h2>
-            <label data-i18n="username_ph">用户名</label>
-            <input type="text" id="modalUser" data-i18n-placeholder="username_ph" placeholder="用户名">
-            <label data-i18n="password_ph">密码</label>
-            <div style="position:relative;display:flex;align-items:center">
-                <input type="text" id="modalPass" data-i18n-placeholder="password_ph" placeholder="密码" style="flex:1;padding-right:34px">
-                <button type="button" class="eye-btn" onclick="toggleModalPass()" title="显示/隐藏" style="position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:15px">👁</button>
-            </div>
-            <label data-i18n="nickname_label">昵称</label>
-            <input type="text" id="modalNick" data-i18n-placeholder="nickname_label" placeholder="昵称">
-            <label data-i18n="role_label">角色</label>
-            <select id="modalRole">
-                <option value="user">user</option>
-                <option value="admin">admin</option>
-            </select>
-            <label data-i18n="status_label">状态</label>
-            <select id="modalStatus">
-                <option value="active">active</option>
-                <option value="pending">pending</option>
-            </select>
-            <div class="modal-actions">
-                <button class="btn btn-cancel" onclick="closeUserModal()" data-i18n="btn_cancel">取消</button>
-                <button class="btn btn-save" onclick="saveUser()" id="modalSaveBtn" data-i18n="btn_save">保存</button>
-            </div>
+</div>
+
+<!-- ===== MODAL: Edit own profile ===== -->
+<div class="modal-overlay" id="profileModal">
+    <div class="modal-card">
+        <h2 data-i18n="edit_profile">修改资料</h2>
+        <div class="error" id="profileErr"></div>
+        <label data-i18n="ui_nickname">昵称</label>
+        <input type="text" id="profileNick" data-i18n-placeholder="profile_nick_ph" placeholder="昵称" maxlength="40">
+        <label data-i18n="old_pw">当前密码</label>
+        <input type="password" id="profileOldPw" data-i18n-placeholder="old_pw" placeholder="当前密码">
+        <label data-i18n="new_pw">新密码</label>
+        <input type="password" id="profileNewPw" data-i18n-placeholder="new_pw" placeholder="新密码">
+        <label data-i18n="confirm_pw">确认新密码</label>
+        <input type="password" id="profileCfmPw" data-i18n-placeholder="confirm_pw" placeholder="确认新密码">
+        <div class="modal-actions">
+            <button class="btn btn-cancel" onclick="closeProfileModal()" data-i18n="btn_cancel">取消</button>
+            <button class="btn btn-save" onclick="saveProfile()" data-i18n="btn_save">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== MODAL: Add / Edit User (admin) ===== -->
+<div class="modal-overlay" id="userModal">
+    <div class="modal-card">
+        <h2 id="userModalTitle">添加用户</h2>
+        <label data-i18n="username_ph">用户名</label>
+        <input type="text" id="modalUser" data-i18n-placeholder="username_ph" placeholder="用户名">
+        <label data-i18n="password_ph">密码</label>
+        <div style="position:relative;display:flex;align-items:center">
+            <input type="text" id="modalPass" data-i18n-placeholder="password_ph" placeholder="密码" style="flex:1;padding-right:34px">
+            <button type="button" class="eye-btn" onclick="toggleModalPass()" title="显示/隐藏" style="position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:15px">👁</button>
+        </div>
+        <label data-i18n="nickname_label">昵称</label>
+        <input type="text" id="modalNick" data-i18n-placeholder="nickname_label" placeholder="昵称">
+        <label data-i18n="role_label">角色</label>
+        <select id="modalRole">
+            <option value="user">user</option>
+            <option value="admin">admin</option>
+        </select>
+        <label data-i18n="status_label">状态</label>
+        <select id="modalStatus">
+            <option value="active">active</option>
+            <option value="pending">pending</option>
+        </select>
+        <div class="modal-actions">
+            <button class="btn btn-cancel" onclick="closeUserModal()" data-i18n="btn_cancel">取消</button>
+            <button class="btn btn-save" onclick="saveUser()" id="modalSaveBtn" data-i18n="btn_save">保存</button>
         </div>
     </div>
 </div>
@@ -101,7 +131,152 @@
 <script src="/static/js/pending.js"></script>
 <script src="/static/js/init.js"></script>
 <script>
-// ==================== User management logic ====================
+// ==================== User Center: tab switching ====================
+function switchUCTab(name) {
+    var panels = { userinfo: 'panelUserInfo', usermgmt: 'panelUserMgmt' };
+    var tabs = { userinfo: 'tabUserInfo', usermgmt: 'tabUserMgmt' };
+    Object.keys(panels).forEach(function(k) {
+        var p = document.getElementById(panels[k]);
+        var tb = document.getElementById(tabs[k]);
+        if (p) p.classList.toggle('active', k === name);
+        if (tb) tb.classList.toggle('active', k === name);
+    });
+    if (name === 'usermgmt') { loadAdminUsers(); }
+}
+
+function setupUCCenter() {
+    var isManager = (authRole === 'admin' || authRole === 'reviewer');
+    var tabMgmt = document.getElementById('tabUserMgmt');
+    if (tabMgmt) tabMgmt.style.display = isManager ? 'inline-block' : 'none';
+    setupAdminView();
+    // Honour an optional ?tab= deep link (e.g. from the pending-approvals bar).
+    var want = new URLSearchParams(location.search).get('tab');
+    if (want === 'usermgmt' && isManager) switchUCTab('usermgmt');
+    else switchUCTab('userinfo');
+}
+
+// ==================== User Center: own profile ====================
+async function loadMyProfile() {
+    var card = document.getElementById('ucInfoCard');
+    if (!card) return;
+    try {
+        var res = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+        if (!res.ok) { card.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>'; return; }
+        var d = await res.json();
+        renderMyProfile(d);
+    } catch (e) {
+        card.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
+    }
+}
+
+function renderMyProfile(d) {
+    var initial = (d.nickname || d.username || '?').charAt(0).toUpperCase();
+    var roleBadge = d.role === 'admin' ? '<span class="badge badge-admin">admin</span>'
+        : d.role === 'reviewer' ? '<span class="badge badge-pending">reviewer</span>' : '';
+    var statusBadge = d.status === 'active' ? '<span class="badge badge-active">active</span>'
+        : d.status === 'pending' ? '<span class="badge badge-pending">pending</span>'
+        : '<span class="badge" style="color:var(--dim)">' + escHtml(d.status || '') + '</span>';
+    var perms = (d.permissions || []).join(', ');
+    document.getElementById('ucInfoCard').innerHTML =
+        '<div class="uc-info-head">' +
+            '<div class="uc-info-avatar">' + initial + '</div>' +
+            '<div>' +
+                '<div class="uc-info-name">' + escHtml(d.nickname || d.username) + '</div>' +
+                '<div class="uc-info-handle">@' + escHtml(d.username) + '</div>' +
+            '</div>' +
+        '</div>' +
+        '<div class="uc-info-rows">' +
+            '<span class="label">' + t('ui_username') + '</span><span class="value">' + escHtml(d.username) + '</span>' +
+            '<span class="label">' + t('ui_nickname') + '</span><span class="value">' + escHtml(d.nickname || '-') + '</span>' +
+            '<span class="label">' + t('ui_role') + '</span><span class="value">' + escHtml(d.role) + ' ' + roleBadge + '</span>' +
+            '<span class="label">' + t('ui_status') + '</span><span class="value">' + statusBadge + '</span>' +
+            '<span class="label">' + t('ui_permissions') + '</span><span class="value">' + escHtml(perms) + '</span>' +
+            '<span class="label">' + t('ui_ip') + '</span><span class="value">' + escHtml(d.last_login_ip || '-') + '</span>' +
+        '</div>' +
+        '<div class="uc-actions">' +
+            '<button class="btn" onclick="openEditProfileModal()">✏️ ' + t('edit_profile') + '</button>' +
+            ((d.is_default || d.username === (d.admin_username || 'admin'))
+                ? ''
+                : '<button class="btn btn-danger" onclick="deactivateSelf()">🚪 ' + t('deactivate') + '</button>') +
+            '<button class="btn" onclick="logoutSelf()">🔓 ' + t('logout_login') + '</button>' +
+        '</div>';
+}
+
+// ==================== Edit own profile modal ====================
+function openEditProfileModal() {
+    var nick = (authNick || authUser || '');
+    document.getElementById('profileNick').value = nick;
+    document.getElementById('profileOldPw').value = '';
+    document.getElementById('profileNewPw').value = '';
+    document.getElementById('profileCfmPw').value = '';
+    document.getElementById('profileErr').textContent = '';
+    document.getElementById('profileModal').classList.add('show');
+}
+
+function closeProfileModal() {
+    document.getElementById('profileModal').classList.remove('show');
+}
+
+async function saveProfile() {
+    var nick = document.getElementById('profileNick').value.trim();
+    var oldP = document.getElementById('profileOldPw').value;
+    var newP = document.getElementById('profileNewPw').value;
+    var cfm = document.getElementById('profileCfmPw').value;
+    var err = document.getElementById('profileErr');
+    if (!nick) { err.textContent = t('fill_fields') || 'Fill all fields'; return; }
+    if (newP && newP !== cfm) { err.textContent = t('pw_mismatch'); return; }
+    var body = { nickname: nick };
+    if (newP) {
+        if (!oldP) { err.textContent = t('fill_fields') || 'Fill all fields'; return; }
+        body.old_password = oldP;
+        body.new_password = newP;
+    }
+    try {
+        var res = await fetch('/api/auth/me', {
+            method: 'PUT',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeaders()),
+            body: JSON.stringify(body),
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (res.ok && data.ok) {
+            closeProfileModal();
+            if (data.password_changed) { forceLogout(t('pw_changed_relogin')); return; }
+            authNick = nick;
+            localStorage.setItem('fs_nick', nick);
+            var ud = document.getElementById('userDisplay');
+            if (ud) ud.textContent = authNick || authUser;
+            toast(t('profile_saved'));
+            loadMyProfile();
+        } else {
+            err.textContent = data.detail || data.message || (t('toast_failed') || 'Failed');
+        }
+    } catch (e) {
+        err.textContent = t('net_error') || 'Network error';
+    }
+}
+
+// ==================== 注销 / 退出登陆 ====================
+async function deactivateSelf() {
+    if (!confirm(t('deactivate_confirm'))) return;
+    try {
+        var res = await fetch('/api/auth/me/deactivate', { method: 'POST', headers: getAuthHeaders() });
+        var data = await res.json().catch(function () { return {}; });
+        if (res.ok && data.ok) { forceLogout(t('acct_deactivated')); }
+        else { toast(data.detail || data.message || (t('toast_failed') || 'Failed'), true); }
+    } catch (e) {
+        toast(t('net_error') || 'Network error', true);
+    }
+}
+
+function logoutSelf() { doLogout(); }
+
+// Click outside modal to close
+document.addEventListener('click', function (e) {
+    if (e.target.id === 'profileModal') closeProfileModal();
+    if (e.target.id === 'userModal') closeUserModal();
+});
+
+// ==================== User management logic (admin / reviewer) ====================
 async function loadAdminUsers(retry) {
     var list = document.getElementById('adminUserList');
     if (!list) return;
@@ -123,7 +298,6 @@ async function loadAdminUsers(retry) {
         data.users.forEach(function(u) {
             var isDefault = !!u.is_default;
             var nickname = u.nickname || u.username;
-            // 角色 / 默认 徽章（仅此一处，避免与独立列重复）
             var roleBadge = u.role === 'admin' ? '<span class="badge badge-admin">admin</span>' : '';
             if (isDefault) roleBadge += ' <span class="badge badge-admin">默认</span>';
             var statusBadge = '';
@@ -171,6 +345,7 @@ async function loadAdminUsers(retry) {
                             '<span class="file-time">' + (u.created_at || '-') + '</span>' +
                             '<span class="file-size-dot">\u00B7</span>' +
                             pwDisplay +
+                            (u.last_login_ip ? ('<span class="file-size-dot">\u00B7</span><span class="file-ip" title="' + t('ui_ip') + '">' + escHtml(u.last_login_ip) + '</span>') : '') +
                         '</div>' +
                     '</div>' +
                     '<div class="file-actions">' + actions + '</div>' +
@@ -339,39 +514,32 @@ async function saveUser() {
     else { toast((data.detail || data.message || t('toast_failed')), true); }
 }
 
-// Click outside modal to close
-document.addEventListener('click', function(e) {
-    if (e.target.id === 'userModal') closeUserModal();
-});
-
-// ===== View navigation =====
-function goHome() { window.location.href = 'index.html'; }
-function goAdmin() {
-    document.getElementById('viewAdmin').style.display = 'block';
-    setupAdminView();
-    loadAdminUsers();
-}
-
+// ==================== Admin view setup (role-scoped) ====================
 function setupAdminView() {
-    // reviewers can view the page (approve) but cannot manage users
     var addBtn = document.getElementById('addUserBtn');
     if (addBtn) addBtn.style.display = (authRole === 'admin') ? 'inline-block' : 'none';
 }
 
 function refreshUI() {
+    loadMyProfile();
     if (authRole === 'admin' || authRole === 'reviewer') loadAdminUsers();
 }
 
-// After login / on load: admin or reviewer. Redirect others back to home.
+// ==================== View navigation ====================
+function goHome() { window.location.href = 'index.html'; }
+
+// After login / on load: any authenticated user may open the User Center.
+// Anonymous guests (no real account) are bounced back to the home page.
 function onAppReady() {
-    if (authRole !== 'admin' && authRole !== 'reviewer') { window.location.href = 'index.html'; return; }
-    goAdmin();
+    if (!authToken || authRole === 'anonymous') { window.location.href = 'index.html'; return; }
+    setupUCCenter();
+    loadMyProfile();
 }
 
-// When the user logs in FROM the users page (was logged out), load the list.
 function onAfterAuth() {
-    if (authRole !== 'admin' && authRole !== 'reviewer') { window.location.href = 'index.html'; return; }
-    goAdmin();
+    if (!authToken || authRole === 'anonymous') { window.location.href = 'index.html'; return; }
+    setupUCCenter();
+    loadMyProfile();
 }
 
 initApp();

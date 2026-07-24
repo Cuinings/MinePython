@@ -18,6 +18,7 @@ class AuthResponse(BaseModel):
     nickname: str | None = None
     permissions: list[str] = []
     require_password_change: bool = False
+    is_default: bool = False
 
 
 class PasswordChangeRequest(BaseModel):
@@ -27,6 +28,19 @@ class PasswordChangeRequest(BaseModel):
 
 class DeactivateRequest(BaseModel):
     password: str | None = None  # optional confirmation password
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Self-service profile update for the caller (used by /api/auth/me).
+
+    ``nickname`` updates the display name. ``old_password`` + ``new_password``
+    optionally change the password (requires the current password); providing a
+    new password invalidates all sessions (same as /api/auth/me/password).
+    """
+
+    nickname: str | None = None
+    old_password: str | None = None
+    new_password: str | None = None
 
 
 class AdminUserRequest(BaseModel):

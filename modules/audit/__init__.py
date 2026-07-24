@@ -7,11 +7,11 @@
 
 from modules.audit.audit import router as audit_router
 from modules.common import create_app
+from modules.user.config import APP_NAME as SERVICE_NAME
 
-SERVICE_NAME = "MinePython"
 SERVICE_VERSION = "4.6.0"
 SERVICE_DESCRIPTION = (
-    "MinePython 审计模块 —— 提供操作记录与安全审计日志查询接口。"
+    f"{SERVICE_NAME} 审计模块 —— 提供操作记录与安全审计日志查询接口。"
 )
 
 

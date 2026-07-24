@@ -9,16 +9,17 @@ users.html / audit.html / api.html）完全不动；各模块的路由器与页�
 
 from modules.audit.audit import router as audit_router
 from modules.common import create_app
+from modules.files.adb import router as adb_router
 from modules.files.categories import router as categories_router
 from modules.files.cleanup import router as cleanup_router
 from modules.files.files import router as files_router
 from modules.user.admin import router as admin_router
 from modules.user.auth import router as auth_router
+from modules.user.config import APP_NAME as SERVICE_NAME
 
-SERVICE_NAME = "MinePython"
 SERVICE_VERSION = "4.6.0"
 SERVICE_DESCRIPTION = (
-    "MinePython REST API —— 提供用户鉴权、文件上传/下载/管理、分类整理与审计日志等接口。"
+    f"{SERVICE_NAME} REST API —— 提供用户鉴权、文件上传/下载/管理、分类整理与审计日志等接口。"
 )
 
 
@@ -28,13 +29,14 @@ def create_combined_app():
         title=SERVICE_NAME,
         version=SERVICE_VERSION,
         description=SERVICE_DESCRIPTION,
-        routers=[auth_router, admin_router, files_router, categories_router, cleanup_router, audit_router],
+        routers=[auth_router, admin_router, files_router, categories_router, cleanup_router, audit_router, adb_router],
         extra_pages=[
             ("/login.html", "login.html"),
             ("/register.html", "register.html"),
             ("/files.html", "files.html"),
             ("/users.html", "users.html"),
             ("/audit.html", "audit.html"),
+            ("/settings.html", "settings.html"),
         ],
         include_api_docs=True,
     )

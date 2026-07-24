@@ -43,6 +43,77 @@ def _load_env_file(path: Path):
 
 _load_env_file(Path(__file__).parent.parent.parent / ".env")
 
+# ---------- Branding (工程名，全项目唯一事实源) ----------
+# The project / site display name. Change it via the APP_NAME env var (or .env)
+# to rebrand the whole app — backend service titles, API docs, and the web UI
+# (page <title> + header) all read from here. No code edits needed.
+APP_NAME = os.getenv("APP_NAME", "MinePython").strip() or "MinePython"
+
+
+# ---------------------------------------------------------------------------
+# Runtime site-name editing (admin UI -> /api/admin/site).
+# set_app_name() updates the in-memory value immediately (so the public
+# /api/app-info endpoint reflects it without a restart) and, if a .env file
+# exists, persists it there so the change survives a restart. Deployments that
+# drive branding purely via real environment variables have no .env file; in
+# that case we only update the in-memory value (env vars are the source of
+# truth and cannot be overwritten from inside the process).
+# ---------------------------------------------------------------------------
+def _write_env_key(key: str, value: str) -> bool:
+    """Persist a single ``key=value`` line into the project .env.
+
+    Replaces an existing line (matching key, non-comment) if present, otherwise
+    appends. Quotes the value when it contains whitespace or shell-special
+    chars so the manual parser in :func:`_load_env_file` reads it back cleanly.
+    Returns ``False`` if there is no .env to write to (caller keeps the
+    in-memory update only).
+    """
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    if not env_path.exists():
+        return False
+    needs_quote = value != value.strip() or any(
+        ch in value for ch in ' #"\'\\$`'
+    )
+    safe = value.replace('"', '\\"') if needs_quote else value
+    line = f'{key}="{safe}"' if needs_quote else f"{key}={value}"
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+        out, replaced = [], False
+        for ln in lines:
+            if ln.strip().startswith("#"):
+                out.append(ln)
+                continue
+            if "=" in ln and ln.split("=", 1)[0].strip() == key:
+                out.append(line)
+                replaced = True
+            else:
+                out.append(ln)
+        if not replaced:
+            if out and out[-1].strip():
+                out.append("")
+            out.append(line)
+        env_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def set_app_name(name: str) -> str:
+    """Update the site display name at runtime and persist it.
+
+    Used by the admin "site settings" UI. Raises ``ValueError`` on invalid
+    input. Returns the normalized name.
+    """
+    global APP_NAME
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Site name cannot be empty")
+    if len(name) > 40:
+        raise ValueError("Site name too long (max 40 characters)")
+    APP_NAME = name
+    _write_env_key("APP_NAME", name)
+    return APP_NAME
+
 # ---------- Paths ----------
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(Path(__file__).parent.parent.parent / "uploads")))
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -121,6 +192,15 @@ MAX_BATCH_DOWNLOAD_FILES = int(os.getenv("MAX_BATCH_DOWNLOAD_FILES", "500"))
 MAX_BATCH_DOWNLOAD_BYTES = int(
     os.getenv("MAX_BATCH_DOWNLOAD_BYTES", str(2 * 1024 * 1024 * 1024))  # 2 GB
 )
+
+# ---------- ADB (APK 一键安装到设备) ----------
+# Path to the adb executable. Defaults to "adb" (resolved via PATH). Point it
+# at an explicit binary when adb is not on PATH, e.g.
+#   ADB_PATH=C:/android-sdk/platform-tools/adb.exe
+ADB_PATH = os.getenv("ADB_PATH", "adb").strip() or "adb"
+# Hard ceiling (seconds) for a single `adb install` so a stuck device can't
+# hang the request forever (large APKs over a slow link can still take minutes).
+ADB_TIMEOUT = int(os.getenv("ADB_TIMEOUT", "300"))
 
 # ---------- Extension -> category mapping (70+ extensions -> 8 categories) ----------
 EXT_CATEGORY: dict[str, str] = {

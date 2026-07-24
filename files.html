@@ -4,6 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="title">MinePython</title>
+        <script type="importmap">
+    {
+      "imports": {
+        "@types/w3c-web-usb": "/static/js/vendor2/_empty.js",
+        "@types/w3c-web-usb/": "/static/js/vendor2/",
+        "@yume-chan/adb": "/static/js/vendor2/@yume-chan/adb/esm/index.js",
+        "@yume-chan/adb/": "/static/js/vendor2/@yume-chan/adb/esm/",
+        "@yume-chan/adb-credential-web": "/static/js/vendor2/@yume-chan/adb-credential-web/esm/index.js",
+        "@yume-chan/adb-credential-web/": "/static/js/vendor2/@yume-chan/adb-credential-web/esm/",
+        "@yume-chan/adb-daemon-webusb": "/static/js/vendor2/@yume-chan/adb-daemon-webusb/esm/index.js",
+        "@yume-chan/adb-daemon-webusb/": "/static/js/vendor2/@yume-chan/adb-daemon-webusb/esm/",
+        "@yume-chan/async": "/static/js/vendor2/@yume-chan/async/esm/index.js",
+        "@yume-chan/async/": "/static/js/vendor2/@yume-chan/async/esm/",
+        "@yume-chan/event": "/static/js/vendor2/@yume-chan/event/esm/index.js",
+        "@yume-chan/event/": "/static/js/vendor2/@yume-chan/event/esm/",
+        "@yume-chan/no-data-view": "/static/js/vendor2/@yume-chan/no-data-view/esm/index.js",
+        "@yume-chan/no-data-view/": "/static/js/vendor2/@yume-chan/no-data-view/esm/",
+        "@yume-chan/stream-extra": "/static/js/vendor2/@yume-chan/stream-extra/esm/index.js",
+        "@yume-chan/stream-extra/": "/static/js/vendor2/@yume-chan/stream-extra/esm/",
+        "@yume-chan/struct": "/static/js/vendor2/@yume-chan/struct/esm/index.js",
+        "@yume-chan/struct/": "/static/js/vendor2/@yume-chan/struct/esm/",
+        "node:child_process": "/static/js/vendor2/_empty.js",
+        "node:fs": "/static/js/vendor2/_empty.js",
+        "node:fs/promises": "/static/js/vendor2/_empty.js"
+      }
+    }
+    </script>
     <link rel="stylesheet" href="/static/common.css">
 </head>
 <body>
@@ -17,9 +44,10 @@
                 <span class="user" id="userDisplay" onclick="toggleUserMenu(event)" style="cursor:pointer"></span>
                 <div class="user-dropdown" id="userMenu">
                     <button class="user-menu-item" onclick="openChangePwModal()">🔑 <span data-i18n="change_pw">修改密码</span></button>
-                    <button class="user-menu-item danger" onclick="deactivateAccount()">🚪 <span data-i18n="deactivate">注销账号</span></button>
+                    <button class="user-menu-item danger" id="deactivateMenuItem" onclick="deactivateAccount()">🚪 <span data-i18n="deactivate">注销账号</span></button>
                 </div>
             </span>
+            <button class="ucenter-btn" onclick="goUserCenter()" data-i18n="ucenter">用户中心</button>
             <button class="logout-btn" onclick="doLogout()" data-i18n="logout">退出</button>
             <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
             <div class="lang-wrapper">
@@ -43,7 +71,7 @@
         </p>
         <div class="cat-bar" id="catBar"></div>
         <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
-            <input type="text" id="searchInput" placeholder="搜索文件..." style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;outline:none" oninput="onSearch()">
+            <input type="text" id="searchInput" placeholder="搜索文件..." style="flex:1;padding:8px 12px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;outline:none" oninput="onSearch()">
         </div>
         <!-- Upload entry point -->
         <div class="upload-entry-bar" onclick="goUpload()">
@@ -95,7 +123,7 @@
             <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:4px">
                 <span id="progressFile"></span><span id="progressPct">0%</span>
             </div>
-            <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:6px;background:var(--border);border-radius:var(--r-xs);overflow:hidden">
                 <div id="progressBar" style="height:100%;background:var(--accent);width:0;transition:width .2s"></div>
             </div>
         </div>
@@ -179,11 +207,11 @@ function updateUploadHint() {
     if (activeCat === 'auto') {
         uploadHint.textContent = t('hint_auto');
         uploadHint.style.background = 'rgba(163,113,247,.15)';
-        uploadHint.style.color = '#a371f7';
+        uploadHint.style.color = 'var(--purple)';
     } else {
         uploadHint.textContent = t('hint_target') + activeCat;
         uploadHint.style.background = 'rgba(88,166,255,.15)';
-        uploadHint.style.color = '#58a6ff';
+        uploadHint.style.color = 'var(--accent)';
     }
 }
 
@@ -277,6 +305,17 @@ function getPreviewHtml(f) {
 
 var currentDetailFile = null;
 
+// Decide whether the current user may delete a given file.
+// - admins (file:delete_any) may delete ANY file;
+// - everyone else may only delete files they uploaded themselves;
+// - anonymous guests cannot delete.
+// This mirrors the backend ownership check in /api/files (delete / batch-delete).
+function canDeleteFile(f) {
+    if (!authUser || !authRole || authRole === 'anonymous') return false;
+    if (authRole === 'admin') return true;
+    return (f.uploaded_by || 'anonymous') === authUser;
+}
+
 function showFileDetail(f) {
     currentDetailFile = f;
     viewMode = 'detail';
@@ -284,11 +323,8 @@ function showFileDetail(f) {
     document.getElementById('viewUpload').style.display = 'none';
     document.getElementById('viewDetail').style.display = 'block';
 
-    var ext = '.' + f.filename.split('.').pop().toLowerCase();
-    var isImage = IMAGE_EXTS.indexOf(ext) >= 0;
-    var preview = isImage
-        ? '<img src="' + downloadUrl(f.path) + '" onerror="this.parentElement.innerHTML=\'<span class=icon>' + (PREVIEW_ICONS[f.category] || '\ud83d\udcc1') + '</span>\'">'
-        : '<span class="icon">' + (PREVIEW_ICONS[f.category] || '\ud83d\udcc1') + '</span>';
+    // Detail page shows the preview inline (no separate "preview" entry needed).
+    var preview = buildInlinePreviewHtml(f.path, f.filename);
 
     document.getElementById('detailContent').innerHTML =
         '<div class="detail-preview">' + preview + '</div>' +
@@ -302,9 +338,9 @@ function showFileDetail(f) {
             '<div class="label">' + (t('detail_time') || 'Time') + '</div><div class="value">' + (f.uploaded_at || '-') + '</div>' +
         '</div>' +
         '<div class="detail-actions">' +
-            '<button class="btn" onclick="openPreview(\'' + f.path + '\')">' + t('btn_preview') + '</button>' +
             '<a class="btn" href="' + downloadUrl(f.path) + '" download>' + t('btn_dl') + '</a>' +
-            '<button class="btn btn-danger" onclick="delFileFromDetail()">' + t('btn_del') + '</button>' +
+            (canAdbInstall() && isApk(f.path) ? '<button class="btn" onclick="adbStart(\'' + f.path.replace(/'/g, "\\'") + '\')">' + t('btn_adb_install') + '</button>' : '') +
+            (canDeleteFile(f) ? '<button class="btn btn-danger" onclick="delFileFromDetail()">' + t('btn_del') + '</button>' : '') +
         '</div>';
 }
 
@@ -356,6 +392,10 @@ async function loadFiles() {
         // extract extension for badge
         var dotIdx = f.filename.lastIndexOf('.');
         var ext = (dotIdx > 0) ? f.filename.slice(dotIdx + 1).toUpperCase() : '';
+        // Only show the "preview" action for types the browser can render
+        // inline. For everything else the entry would wrongly trigger a
+        // download, so we hide it and leave download/delete only.
+        var previewable = isPreviewable(f.path);
         html += '<div class="file-card">' +
             '<input type="checkbox" class="file-check" data-path="' + f.path + '" onclick="event.stopPropagation();updateBatchUI()">' +
             '<div class="file-body" onclick="showFileDetail({filename:\'' +
@@ -382,9 +422,10 @@ async function loadFiles() {
                 '</div>' +
             '</div>' +
             '<div class="file-actions">' +
-                '<button class="btn btn-xs" onclick="event.stopPropagation();openPreview(\'' + f.path + '\')">' + t('btn_preview') + '</button>' +
+                (previewable ? '<button class="btn btn-xs" onclick="event.stopPropagation();openPreview(\'' + f.path + '\')">' + t('btn_preview') + '</button>' : '') +
+                (canAdbInstall() && isApk(f.path) ? '<button class="btn btn-xs" onclick="event.stopPropagation();adbStart(\'' + f.path.replace(/'/g, "\\'") + '\')">' + t('btn_adb_install') + '</button>' : '') +
                 '<a class="btn btn-xs" href="' + downloadUrl(f.path) + '" download onclick="event.stopPropagation()">' + t('btn_dl') + '</a>' +
-                '<button class="btn btn-xs btn-danger" onclick="event.stopPropagation();delFile(\'' + f.path + '\')">' + t('btn_del') + '</button>' +
+                (canDeleteFile(f) ? '<button class="btn btn-xs btn-danger" onclick="event.stopPropagation();delFile(\'' + f.path + '\')">' + t('btn_del') + '</button>' : '') +
             '</div>' +
             '</div></div>';
     });
@@ -506,26 +547,61 @@ async function organizeRoot() {
 var PREVIEW_IMG = ['.jpg','.jpeg','.png','.gif','.webp','.bmp','.svg','.ico'];
 var PREVIEW_VIDEO = ['.mp4','.webm','.ogg','.mov','.m4v','.avi','.mkv','.wmv','.flv'];
 var PREVIEW_AUDIO = ['.mp3','.wav','.flac','.aac','.ogg','.m4a','.opus','.wma'];
+// Document-ish types the browser can render inside an <iframe> inline.
+var PREVIEW_DOC = ['.pdf','.txt','.html','.htm','.md','.markdown','.json','.xml','.csv','.log','.js','.css','.py','.java','.c','.cpp','.go','.rs','.sh','.yml','.yaml'];
+
+// A file is "previewable" only when the browser can actually render it inline.
+// Anything else (e.g. .apk/.exe/.docx/.zip) must go through download — never
+// through the preview entry, or the browser silently triggers a download.
+function isPreviewable(path) {
+    var ext = (path.split('.').pop() || '').toLowerCase();
+    return PREVIEW_IMG.indexOf('.' + ext) >= 0
+        || PREVIEW_VIDEO.indexOf('.' + ext) >= 0
+        || PREVIEW_AUDIO.indexOf('.' + ext) >= 0
+        || PREVIEW_DOC.indexOf('.' + ext) >= 0;
+}
+
+// Shared inline-preview builder used by BOTH the detail page and the preview
+// modal, so behaviour stays identical. For non-previewable types it shows a
+// friendly "cannot preview" note plus a download link instead of forcing a
+// download (the root cause of "点击预览却弹出下载").
+function buildInlinePreviewHtml(path, filename) {
+    var ext = (path.split('.').pop() || '').toLowerCase();
+    var url = previewUrl(path);
+    var dl = downloadUrl(path);
+    if (PREVIEW_IMG.indexOf('.' + ext) >= 0) {
+        return '<img class="preview-media" src="' + url + '" onerror="imgFallback(this)">';
+    }
+    if (PREVIEW_VIDEO.indexOf('.' + ext) >= 0) {
+        return '<video class="preview-media" controls autoplay src="' + url + '"></video>';
+    }
+    if (PREVIEW_AUDIO.indexOf('.' + ext) >= 0) {
+        return '<audio class="preview-media" controls autoplay src="' + url + '"></audio>';
+    }
+    if (PREVIEW_DOC.indexOf('.' + ext) >= 0) {
+        return '<iframe class="preview-frame" src="' + url + '"></iframe>';
+    }
+    return '<div class="preview-fallback">' +
+        '<div class="preview-fallback-icon">📄</div>' +
+        '<div class="preview-fallback-text">' + (t('preview_unsupported') || 'Cannot preview this file type.') + '</div>' +
+        '<a class="btn" href="' + dl + '" download>' + (t('btn_dl') || 'Download') + '</a>' +
+        '</div>';
+}
+
+// Replace a broken preview <img> with a graceful fallback box.
+function imgFallback(img) {
+    var box = document.createElement('div');
+    box.className = 'preview-fallback';
+    box.innerHTML = '<div class="preview-fallback-text">' + (t('preview_unsupported') || 'Cannot preview this file.') + '</div>';
+    if (img && img.parentNode) img.parentNode.replaceChild(box, img);
+}
 
 function previewUrl(path) {
     return '/api/preview/' + encodeURIComponent(path) + getTokenParam();
 }
 
 function openPreview(path) {
-    var ext = (path.split('.').pop() || '').toLowerCase();
-    var url = previewUrl(path);
-    var body;
-    if (PREVIEW_IMG.indexOf('.' + ext) >= 0) {
-        body = '<img class="preview-media" src="' + url + '">';
-    } else if (PREVIEW_VIDEO.indexOf('.' + ext) >= 0) {
-        body = '<video class="preview-media" controls autoplay src="' + url + '"></video>';
-    } else if (PREVIEW_AUDIO.indexOf('.' + ext) >= 0) {
-        body = '<audio class="preview-media" controls autoplay src="' + url + '"></audio>';
-    } else {
-        // PDF / HTML / text / etc. render inside an iframe.
-        body = '<iframe class="preview-frame" src="' + url + '"></iframe>';
-    }
-    document.getElementById('previewBody').innerHTML = body;
+    document.getElementById('previewBody').innerHTML = buildInlinePreviewHtml(path, path);
     document.getElementById('previewModal').classList.add('show');
 }
 
@@ -562,9 +638,31 @@ function refreshUI() {
 }
 
 // After login / on load, show the file list.
-function onAppReady() { goFiles(); }
+function onAppReady() { syncAccountFlags(); goFiles(); }
 
 // ===== Self-service: change password / deactivate account =====
+
+// Hide the "注销账号" entry for the protected default account. The backend
+// already refuses deactivation of default accounts; this just keeps the
+// (non-functional) entry out of the UI for those accounts.
+// Fallback: if the DB is_default flag is missing on a legacy database, hide
+// based on the configured bootstrap admin username as well.
+function applyAccountUi() {
+    var el = document.getElementById('deactivateMenuItem');
+    var isProtected = authRole === 'anonymous' || authIsDefault || (authUser && authUser === authBootstrapAdmin);
+    if (el) el.style.display = isProtected ? 'none' : '';
+}
+
+// Re-sync the default-account flag from the server so the menu is correct even
+// after a page reload or on clients with stale local state.
+async function syncAccountFlags() {
+    try {
+        var res = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+        if (res.ok) applyAccountFlags(await res.json());
+    } catch (e) { /* keep locally cached flag on network error */ }
+    applyAccountUi();
+}
+
 function toggleUserMenu(e) {
     e.stopPropagation();
     // Anonymous guests have no account to manage — keep the menu inert.
@@ -627,6 +725,491 @@ document.addEventListener('click', function (e) {
     }
 });
 
+// ===== ADB 一键安装 APK (P-ADB) =====
+function isApk(path) {
+    var ext = (path.split('.').pop() || '').toLowerCase();
+    return ext === 'apk';
+}
+function canAdbInstall() {
+    return !!authRole && authRole !== 'anonymous';
+}
+
+function openAdbModal(html) {
+    var m = document.getElementById('adbModal');
+    var title = document.getElementById('adbModalTitle');
+    if (title) title.textContent = t('adb_title') || 'ADB 安装';
+    var b = document.getElementById('adbModalBody');
+    if (b) b.innerHTML = html;
+    if (m) m.classList.add('show');
+}
+function setAdbModalBody(html) {
+    var b = document.getElementById('adbModalBody');
+    if (b) b.innerHTML = html;
+}
+function closeAdbModal() {
+    var m = document.getElementById('adbModal');
+    if (m) m.classList.remove('show');
+    var b = document.getElementById('adbModalBody');
+    if (b) b.innerHTML = '';
+}
+
+// ---- ADB 安装引导向导（未检测到 adb 时展示） ----
+var adbCurrentPath = null;
+
+// 全局错误兜底：任何未捕获的 JS 错误都变成可见提示，避免“点击没反应”却无任何信息
+window.addEventListener('error', function (ev) {
+    try { toast('JS 错误：' + (ev.message || (ev.error && ev.error.message) || '未知'), true); } catch (_) {}
+});
+window.addEventListener('unhandledrejection', function (ev) {
+    try { var r = ev.reason; toast('异步错误：' + (r && r.message ? r.message : String(r)), true); } catch (_) {}
+});
+
+function adbOsDetect() {
+    var ua = navigator.userAgent || '';
+    if (/Win/i.test(ua)) return 'win';
+    if (/Mac/i.test(ua)) return 'mac';
+    if (/Linux|X11/i.test(ua)) return 'linux';
+    return 'win';
+}
+
+// 单条步骤：序号 + 标题 + 说明（说明可含 HTML：链接 / code / b）
+function adbStep(n, title, body) {
+    return '<div class="adb-step">' +
+        '<div class="adb-step-no">' + n + '</div>' +
+        '<div class="adb-step-body">' +
+            '<div class="adb-step-title">' + escHtml(title) + '</div>' +
+            '<div class="adb-step-text">' + body + '</div>' +
+        '</div>' +
+    '</div>';
+}
+
+// 按操作系统返回详细配置步骤
+function adbStepsHtml(os) {
+    var dl = '<a href="https://developer.android.com/tools/releases/platform-tools" target="_blank" rel="noopener">developer.android.com/tools/releases/platform-tools</a>';
+    var win = ''
+        + adbStep(1, t('adb_s1_dl'), '从 ' + dl + ' 下载 <code>platform-tools-latest-windows.zip</code>。')
+        + adbStep(2, t('adb_s2_extract'), '解压到本地目录，例如 <code>C:\\platform-tools</code>。')
+        + adbStep(3, t('adb_s3_path'), '把 <code>C:\\platform-tools</code> 加入系统环境变量 <b>Path</b>；或在<b>服务端</b>的 <code>.env</code> 写入 <code>ADB_PATH=C:\\platform-tools\\adb.exe</code>。')
+        + adbStep(4, t('adb_s4_verify'), '打开 PowerShell 运行 <code>adb version</code>，显示版本号即安装成功。')
+        + adbStep(5, t('adb_s5_phone'), '手机：设置 → 关于手机 → 连点「版本号」7 次开启<b>开发者选项</b> → 返回 → 系统与更新 → 开发者选项 → 开启「<b>USB 调试</b>」。')
+        + adbStep(6, t('adb_s6_rescan'), '用<b>数据线</b>把手机连到<b>运行本服务的机器</b>，弹窗点「<b>允许</b>」；回到本页点「<b>重新检测</b>」。');
+    var mac = ''
+        + adbStep(1, t('adb_s1_dl'), '推荐：终端执行 <code>brew install android-platform-tools</code>。或下载 <code>platform-tools-latest-darwin.zip</code> 解压到 <code>~/platform-tools</code>。')
+        + adbStep(2, t('adb_s2_extract'), '解压到本地目录 <code>~/platform-tools</code>。')
+        + adbStep(3, t('adb_s3_path'), '在 <code>~/.zshrc</code> 追加 <code>export PATH=$PATH:~/platform-tools</code> 后执行 <code>source ~/.zshrc</code>；或在 <code>.env</code> 设 <code>ADB_PATH=~/platform-tools/adb</code>。')
+        + adbStep(4, t('adb_s4_verify'), '终端运行 <code>adb version</code> 验证。')
+        + adbStep(5, t('adb_s5_phone'), '手机开启<b>开发者选项</b>与「<b>USB 调试</b>」（同 Windows 步骤 5）。')
+        + adbStep(6, t('adb_s6_rescan'), '用数据线连到<b>运行本服务的机器</b>，弹窗点「允许」；回本页点「重新检测」。');
+    var linux = ''
+        + adbStep(1, t('adb_s1_dl'), 'Debian/Ubuntu 终端执行 <code>sudo apt update &amp;&amp; sudo apt install -y android-tools-adb</code>；或其它发行版从 ' + dl + ' 下载 zip。')
+        + adbStep(2, t('adb_s2_extract'), '解压到本地目录，例如 <code>~/platform-tools</code>。')
+        + adbStep(3, t('adb_s3_path'), '将解压目录加入 PATH，或在 <code>.env</code> 设 <code>ADB_PATH=/path/to/platform-tools/adb</code>。')
+        + adbStep(4, t('adb_s4_verify'), '终端运行 <code>adb version</code> 验证。')
+        + adbStep(5, t('adb_s5_phone'), '手机开启<b>开发者选项</b>与「<b>USB 调试</b>」。')
+        + adbStep(6, t('adb_s6_rescan'), '用数据线连到<b>运行本服务的机器</b>，弹窗点「允许」；回本页点「重新检测」。');
+    if (os === 'mac') return mac;
+    if (os === 'linux') return linux;
+    return win;
+}
+
+function adbOsTab(os, activeOs, label) {
+    return '<button class="adb-os' + (os === activeOs ? ' active' : '') + '" data-os="' + os + '" onclick="adbSetOs(\'' + os + '\')">' + label + '</button>';
+}
+
+// 非安全上下文（必须 https）时的提示
+function adbNeedHttpsHtml() {
+    return '<div class="adb-guide">' +
+        '<div class="adb-guide-intro">' + escHtml(t('adb_need_https') ||
+            'WebUSB 需要安全上下文（HTTPS）。请通过 https 打开本页面（例如 https://服务器地址:8000/files.html），浏览器会禁用 http 下的设备连接。') + '</div>' +
+        '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>' +
+    '</div>';
+}
+// 浏览器不支持 WebUSB 时的提示
+function adbNeedBrowserHtml() {
+    return '<div class="adb-guide">' +
+        '<div class="adb-guide-intro">' + escHtml(t('adb_need_browser') ||
+            '当前浏览器不支持 WebUSB。请使用 Chrome / Edge / Brave 等基于 Chromium 的浏览器打开本页面。') + '</div>' +
+        '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>' +
+    '</div>';
+}
+// 从指引页返回时重新尝试安装
+function adbRetry() { adbWifiRescan(); }
+
+// WebUSB 配置指引（点击安装但设备未连接/被拒绝时展示）
+function adbGuideHtml(path) {
+    adbCurrentPath = path || null;
+    return '<div class="adb-guide">' +
+        '<div class="adb-guide-intro">' + escHtml(t('adb_guide_webusb_intro') ||
+            '若手机已通过 <b>WiFi（网络 ADB）</b> 连到电脑，点「ADB安装」后会先让你填手机 WiFi 地址让服务器去连，再走服务端安装（服务器需能访问该 IP）。若用 <b>USB 数据线</b> 直连本机，则走浏览器 WebUSB 通道。') + '</div>' +
+        adbStep(1, t('adb_w1') || '用 Chrome / Edge 打开本页', '必须使用基于 Chromium 的浏览器，并通过 <b>https</b>（非 http）访问本页。') +
+        adbStep(2, t('adb_w2') || '手机开启 USB 调试', '设置 → 关于手机 → 连点「版本号」7 次开启<b>开发者选项</b> → 开发者选项 → 开启「<b>USB 调试</b>」。') +
+        adbStep(3, t('adb_w3') || '连接并授权', '用<b>数据线</b>把手机连到<b>这台电脑（B）</b>；浏览器会弹出 USB 设备选择，选中手机并点「连接」；手机上点「<b>允许</b>」USB 调试。') +
+        adbStep(4, t('adb_w4') || '重新点击安装', '回到文件列表，再次点击 APK 的「ADB安装」即可推送到手机。') +
+        '<div class="adb-actions">' +
+            '<button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button>' +
+            '<button class="btn btn-save" onclick="adbRetry()">' + (t('adb_retry') || '重新安装') + '</button>' +
+        '</div>' +
+    '</div>';
+}
+
+function adbSetOs(os) {
+    document.querySelectorAll('.adb-os').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-os') === os);
+    });
+    var el = document.getElementById('adbSteps');
+    if (el) el.innerHTML = adbStepsHtml(os);
+}
+
+// 向导里的「重新检测」：重扫设备并按结果分流
+async function adbRescan() {
+    setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_scanning') || '正在扫描设备…') + '</div></div>');
+    try {
+        var r = await fetch('/api/adb/devices', { headers: getAuthHeaders() });
+        var d = await r.json();
+        if (!r.ok) {
+            setAdbModalBody('<div class="adb-msg adb-err">' + escHtml(d.detail || (t('toast_failed') || '失败')) + '</div><div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>');
+            return;
+        }
+        if (d.adb_missing) { setAdbModalBody(adbGuideHtml(adbCurrentPath)); return; }
+        var devs = d.devices || [];
+        var ready = devs.filter(function (x) { return x.ready; });
+        if (ready.length === 0) {
+            var off = devs.filter(function (x) { return !x.ready; });
+            var sub = off.length
+                ? ('<br><span class="adb-sub">' + (off[0].state === 'unauthorized' ? (t('adb_unauthorized') || '设备未授权') : escHtml(off[0].state)) + '</span>')
+                : '';
+            setAdbModalBody(
+                '<div class="adb-msg">' + escHtml(t('adb_no_device') || '未检测到设备') + sub + '</div>' +
+                '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>'
+            );
+            return;
+        }
+        if (ready.length === 1) { await adbDoInstall(adbCurrentPath, ready[0].serial); return; }
+        setAdbModalBody(adbDevicePickerHtml(adbCurrentPath, devs));
+    } catch (e) {
+        setAdbModalBody('<div class="adb-msg adb-err">' + (t('net_error') || '网络错误') + '</div><div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>');
+    }
+}
+
+// 把设备数组渲染成可点击的选择列表（仅已授权设备可点）
+function adbDevicePickerHtml(path, devices) {
+    var html = '<div class="adb-choose">' + (t('adb_choose') || '选择目标设备') + '</div>' +
+        '<div class="adb-dev-list">';
+    (devices || []).forEach(function (x) {
+        if (!x.ready) return;
+        var safePath = path.replace(/'/g, "\\'");
+        var safeSerial = x.serial.replace(/'/g, "\\'");
+        html += '<button class="adb-dev" onclick="adbDoInstall(\'' + safePath + '\',\'' + safeSerial + '\')">' +
+            '<span class="adb-dev-name">' + (escHtml(x.model) || escHtml(x.serial)) + '</span>' +
+            '<span class="adb-dev-sn">' + escHtml(x.serial) + '</span>' +
+            '</button>';
+    });
+    html += '</div>';
+    return html;
+}
+
+// 设备自检：不装 APK，只判断「WebUSB 能否看到手机」以及「手机是否处于 ADB 调试模式」
+function adbDiagNothingVisible() {
+    setAdbModalBody(
+        '<div class="adb-msg adb-err">❌ WebUSB <b>完全看不到任何 USB 设备</b>。<br><br>' +
+        '请按顺序排查：<br>' +
+        '① 换一根<b>能传数据</b>的 USB 线（很多线只有充电功能）；<br>' +
+        '② 手机 USB 连接模式选「传输文件 (MTP)」或「USB 调试」，而不要选「仅充电」；<br>' +
+        '③ B 电脑上<b>结束其他 adb 进程</b>（任务管理器结束 adb.exe / 关闭 Android Studio 的 ADB），它们会独占 ADB 接口导致 WebUSB 看不见；<br>' +
+        '④ Windows 上安装 Android 复合 ADB 驱动（Google USB Driver 或手机厂商驱动）；<br>' +
+        '⑤ 换一个 USB 口，或重启手机后重新连接。</div>' +
+        '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>'
+    );
+}
+
+async function adbDiagnosePick() {
+    try {
+        // 用「空过滤器」再弹一次：能看到所有已连接的 USB 设备
+        const dev = await navigator.usb.requestDevice({ filters: [] });
+        if (dev) {
+            const name = dev.productName || dev.manufacturerName || dev.serialNumber || '未知设备';
+            setAdbModalBody(
+                '<div class="adb-msg adb-ok">✅ 设备可见：<b>' + escHtml(name) + '</b><br><br>' +
+                '但它在默认 ADB 过滤器下没被选中，说明它<b>没有暴露 ADB 接口</b>。<br>请确认：<br>' +
+                '① 手机「开发者选项 → USB 调试」已开启；<br>' +
+                '② 手机弹出「是否允许 USB 调试」时点了「允许」并勾选「一律允许」；<br>' +
+                '③ 拔插一次 USB 线重新触发授权。<br><br>' +
+                '若仍不行，多半是 B 电脑上<b>其他 adb（Android Studio / platform-tools 的 adb.exe）已占用接口</b>，请先结束它们再试。</div>' +
+                '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>'
+            );
+        } else {
+            adbDiagNothingVisible();
+        }
+    } catch (e) {
+        if (/notfound|no device|user cancelled/i.test((e && e.message) || '')) {
+            adbDiagNothingVisible();
+        } else {
+            setAdbModalBody('<div class="adb-msg adb-err">' + escHtml((e && e.message) || String(e)) + '</div><div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>');
+        }
+    }
+}
+
+async function adbDiagnose() {
+    if (!window.isSecureContext) { openAdbModal(adbNeedHttpsHtml()); return; }
+    if (!navigator.usb) { openAdbModal(adbNeedBrowserHtml()); return; }
+    openAdbModal('<div class="adb-loading"><div class="spinner"></div><div>正在检测 WebUSB 与已连接设备…</div></div>');
+    const lines = [];
+    lines.push('• ' + (window.isSecureContext ? '✅ HTTPS 安全上下文正常（WebUSB 可用）' : '❌ 非安全上下文，WebUSB 被禁用'));
+    lines.push('• ' + (navigator.usb ? '✅ 浏览器支持 WebUSB（Chrome / Edge）' : '❌ 浏览器不支持 WebUSB'));
+    let paired = [];
+    try { paired = await navigator.usb.getDevices(); } catch (_) {}
+    if (paired.length) {
+        lines.push('• ✅ 已配对过 ' + paired.length + ' 台设备：' + paired.map(d => d.productName || d.serialNumber || '未知').join('、'));
+    } else {
+        lines.push('• ⚠️ 尚无已配对设备（首次需弹窗授权）');
+    }
+    setAdbModalBody(
+        '<div class="adb-msg"><div>' + lines.join('<br>') + '</div>' +
+        '<div style="margin-top:10px">下一步将弹出「选择 USB 设备」窗口：<br>' +
+        '— 若能看到你的手机 → 物理连接 OK，问题是<b>手机未开 USB 调试 / 未授权</b>；<br>' +
+        '— 若列表为空 → WebUSB 完全看不到手机，问题在<b>线缆 / 驱动 / 被其他 adb 占用</b>。</div>' +
+        '<div class="adb-actions">' +
+            '<button class="btn btn-save" onclick="adbDiagnosePick()">弹出设备选择框（诊断）</button>' +
+            '<button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button>' +
+        '</div></div>'
+    );
+}
+
+// ===== WiFi (网络 ADB) 配对面板 =====
+// 适用于手机通过 WiFi ADB 连到电脑（WebUSB 看不到 WiFi 设备）。
+// 让服务器上的 adb 去 connect 手机 IP:端口，连上后走服务端安装通道。
+function adbWifiRender(devices, msg) {
+    var ip = window.__adbWifiIp || '';
+    var listHtml = '';
+    (devices || []).forEach(function (x) {
+        if (!x.ready) {
+            listHtml += '<div class="adb-dev adb-dev-off">' + escHtml(x.serial) + ' <span class="adb-sub">' + escHtml(x.state) + '</span></div>';
+            return;
+        }
+        var p = (adbCurrentPath || '').replace(/'/g, "\\'");
+        var s = x.serial.replace(/'/g, "\\'");
+        listHtml += '<button class="adb-dev adb-dev-ok" onclick="adbDoInstall(\'' + p + '\',\'' + s + '\')">✅ '
+            + escHtml(x.model || x.serial) + ' <span class="adb-sub">' + escHtml(x.serial) + '</span><br>点击安装</button>';
+    });
+    if (!listHtml) listHtml = '<div class="adb-sub">尚无已授权设备。连接成功后这里会出现设备。</div>';
+    var body = '<div class="adb-wifi">'
+        + '<div class="adb-wifi-title">📶 WiFi (网络 ADB) 配对</div>'
+        + '<div class="adb-wifi-hint">手机开启「开发者选项 → 无线调试 / 网络 ADB」会显示 <b>IP:端口</b>（如 192.168.1.20:5555）。填到下面点「连接」，让<b>服务器</b>去连它（服务器需与该 IP 网络可达）。</div>'
+        + '<div class="adb-wifi-row">'
+        + '<input id="adbWifiIp" class="adb-input" placeholder="如 192.168.1.20:5555" value="' + escHtml(ip) + '">'
+        + '<button class="btn btn-save" onclick="adbWifiConnect()">连接</button>'
+        + '<button class="btn" onclick="adbWifiRescan()">刷新设备</button>'
+        + '</div>'
+        + (msg ? '<div class="adb-wifi-msg">' + msg + '</div>' : '')
+        + '<div class="adb-wifi-list">' + listHtml + '</div>'
+        + '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">关闭</button>'
+        + (adbCurrentPath ? '<button class="btn" onclick="adbInstall(\'' + adbCurrentPath.replace(/'/g, "\\'") + '\')">改用 USB (WebUSB)</button>' : '')
+        + '</div>'
+        + '</div>';
+    setAdbModalBody(body);
+}
+
+async function adbWifiConnect() {
+    var inp = document.getElementById('adbWifiIp');
+    if (!inp) return;
+    var val = (inp.value || '').trim();
+    if (!val) { adbWifiRender(null, '请填写手机 WiFi ADB 地址'); return; }
+    if (!val.includes(':')) val = val + ':5555';
+    window.__adbWifiIp = val;
+    var host = val.split(':')[0];
+    var port = parseInt(val.split(':')[1] || '5555', 10);
+    adbWifiRender(null, '正在连接 ' + escHtml(val) + ' …');
+    try {
+        var r = await fetch('/api/adb/connect', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeaders()),
+            body: JSON.stringify({ host: host, port: port }),
+        });
+        var d = await r.json();
+        if (!r.ok) { adbWifiRender(d.devices || null, '❌ ' + escHtml(d.detail || '连接失败')); return; }
+        var m = '✅ ' + escHtml((d.output || '已连接').toString().replace(/<[^>]+>/g, ''));
+        if (d.adb_missing) m += '（但<b>服务器未装 adb</b>，请先在服务器安装 Android SDK Platform-Tools 或在 .env 设 ADB_PATH）';
+        adbWifiRender(d.devices || [], m);
+    } catch (e) {
+        adbWifiRender(null, '❌ 网络错误');
+    }
+}
+
+async function adbWifiRescan() {
+    try {
+        var r = await fetch('/api/adb/devices', { headers: getAuthHeaders() });
+        var d = await r.json();
+        if (!r.ok) { adbWifiRender(null, '❌ ' + escHtml(d.detail || '获取设备失败')); return; }
+        if (d.adb_missing) { adbWifiRender([], '⚠️ <b>服务器未检测到 adb</b>：请先在服务器安装 Android SDK Platform-Tools 并加入 PATH，或在 .env 设 ADB_PATH。'); return; }
+        adbWifiRender(d.devices || [], '');
+    } catch (e) {
+        adbWifiRender(null, '❌ 网络错误');
+    }
+}
+
+// 入口：点击「ADB安装」→ 优先走服务端通道（WiFi/USB 均可），无设备时给出 WiFi 配对
+function adbStart(path) {
+    adbCurrentPath = path || null;
+    openAdbModal('<div class="adb-loading"><div class="spinner"></div><div>正在连接服务器 ADB…</div></div>');
+    adbWifiRescan();
+}
+
+// 入口：浏览器 WebUSB 直连（仅适用于手机 USB 物理插在 B 电脑且未走 WiFi 的场景）
+async function adbInstall(path) {
+    if (!canAdbInstall()) { toast(t('login_required') || '请先登录', true); return; }
+    if (!window.isSecureContext) { openAdbModal(adbNeedHttpsHtml()); return; }
+    if (!navigator.usb) { openAdbModal(adbNeedBrowserHtml()); return; }
+
+    adbCurrentPath = path;
+    openAdbModal('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_connecting') || '正在连接设备（请在浏览器弹窗中选择手机并允许）…') + '</div></div>');
+    try {
+        // 浏览器端 ADB 实现（ya-webadb 2.x，@yume-chan/adb + adb-daemon-webusb + adb-credential-web）
+        // 已本地打包到 /static/js/webadb2.bundle.js，由服务器 A 上的 download_webadb2.py 生成；
+        // B 浏览器从同源加载，无需访问外网 CDN。
+        var bundleUrl = '/static/js/webadb2.bundle.js?v=' + Date.now();
+
+        // 预检：如果服务器还没识别到刚生成的 bundle，给出明确提示而不是浏览器原生 404。
+        var check = await fetch(bundleUrl, { method: 'HEAD', cache: 'no-store' });
+        if (!check.ok) {
+            throw new Error(
+                (t('adb_lib_fail') || 'ADB 库文件未找到 (404)') + '\n' +
+                (t('adb_lib_fail_hint') || '请先在服务器运行 "python download_webadb2.py"，然后完全重启服务器再试。')
+            );
+        }
+
+        const mod = await import(bundleUrl);
+        const Adb = mod.Adb;
+        const AdbDaemonTransport = mod.AdbDaemonTransport;
+        const DeviceManager = mod.AdbDaemonWebUsbDeviceManager;
+        const AdbWebCredentialStore = mod.AdbWebCredentialStore;
+        if (!Adb || !AdbDaemonTransport || !DeviceManager || !AdbWebCredentialStore) {
+            throw new Error(t('adb_lib_fail') || 'ADB 库未加载：请先在服务器运行 python download_webadb2.py');
+        }
+
+        setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_connecting') || '正在连接设备…') + '</div></div>');
+        // 2.x：用浏览器原生 WebUSB 选设备，再 connect + authenticate
+        const manager = DeviceManager.BROWSER;
+        if (!manager) throw new Error(t('adb_need_browser') || '当前浏览器不支持 WebUSB（请用 Chrome / Edge）。');
+        const device = await manager.requestDevice();
+        if (!device) { await adbDiagnose(); return; }
+        const connection = await device.connect();
+        const transport = await AdbDaemonTransport.authenticate({
+            serial: device.serial,
+            connection,
+            credentialStore: new AdbWebCredentialStore(),
+        });
+        const adb = new Adb(transport);
+
+        setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_downloading') || '正在从服务器下载 APK…') + '</div></div>');
+        const res = await fetch(downloadUrl(path));   // 同源：服务器 A 上的文件（已带 token）
+        if (!res.ok) throw new Error((t('adb_dl_fail') || 'APK 下载失败') + '：' + res.status);
+        const buf = await res.arrayBuffer();
+
+        setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_installing') || '正在安装到手机…') + '</div></div>');
+        // 2.x 没有高层 install()：sync 推送 APK 到手机，再 pm install（与 ya-webadb 旧版行为一致）
+        const fileName = Math.random().toString().substring(2);
+        const filePath = '/data/local/tmp/' + fileName + '.apk';
+        const sync = await adb.sync();
+        try {
+            const apkStream = new ReadableStream({
+                start(controller) { controller.enqueue(new Uint8Array(buf)); controller.close(); }
+            });
+            await sync.write({ filename: filePath, file: apkStream });
+        } finally {
+            await sync.dispose();
+        }
+        let output = '';
+        try {
+            output = await adb.subprocess.noneProtocol.spawnWaitText(['pm', 'install', '-r', filePath]) || '';
+        } finally {
+            await adb.rm(filePath);
+        }
+        if (/Failure|error:/i.test(output)) {
+            throw new Error((t('adb_install_fail') || '安装失败') + '：' + output.trim());
+        }
+
+        setAdbModalBody(
+            '<div class="adb-result adb-ok"><div class="adb-icon">✓</div>' +
+            '<div class="adb-result-title">' + (t('adb_success') || '安装成功') + '</div>' +
+            '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div></div>'
+        );
+    } catch (e) {
+        var msg = (e && e.message) ? e.message : String(e);
+        // WebUSB 特有：设备被本机另一个程序（本地 adb.exe / 系统 USB 驱动）占用。
+        // 你的情况是手机经 WiFi 连接，应改用服务端 WiFi 通道，而不是 WebUSB。
+        if (/already in use|in used by another/i.test(msg)) {
+            const guide = (t('adb_usb_busy') || '❌ WebUSB 无法占用该设备：它已被本机另一个程序（通常是本地 adb.exe 或系统 USB 驱动）占用。\n' +
+                '你的手机是 WiFi 连接，请【不要选 WebUSB】，改用上方「📶 WiFi 配对」面板：\n' +
+                '在面板填手机「无线调试」界面里的 IP:端口，点「连接」，由服务器经网络直接安装（不需要 USB 线）。');
+            setAdbModalBody(
+                '<div class="adb-msg adb-err">' + escHtml(guide).replace(/\n/g, '<br>') + '</div>' +
+                '<div class="adb-actions">' +
+                    '<button class="btn btn-save" onclick="adbWifiRescan()">📶 改用 WiFi 配对</button>' +
+                    '<button class="btn" onclick="closeAdbModal()">关闭</button>' +
+                '</div>'
+            );
+            return;
+        }
+        if (/user cancelled|notfound|not found|securityerror|no device/i.test(msg)) {
+            msg = t('adb_usb_denied') || '未选择设备或已取消，请在浏览器弹窗中允许访问手机 USB 后重试。';
+        }
+        setAdbModalBody(
+            '<div class="adb-msg adb-err">' + escHtml(msg).replace(/\n/g, '<br>') + '</div>' +
+            '<div class="adb-actions">' +
+                '<button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button>' +
+                '<button class="btn btn-save" onclick="setAdbModalBody(adbGuideHtml(adbCurrentPath))">' + (t('adb_guide_btn') || '查看配置指引') + '</button>' +
+                '<button class="btn" onclick="adbDiagnose()">🔍 设备自检</button>' +
+            '</div>'
+        );
+    }
+}
+
+// 真正执行安装请求
+async function adbDoInstall(path, serial) {
+    setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_installing') || '正在安装…') + '</div></div>');
+    try {
+        var res = await fetch('/api/adb/install', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeaders()),
+            body: JSON.stringify({ path: path, serial: serial || null }),
+        });
+        var data = await res.json();
+        if (!res.ok) {
+            // 后端要求选择具体设备 -> 重新弹出选择列表
+            if (data && data.needs_serial) {
+                setAdbModalBody(adbDevicePickerHtml(path, data.devices || []));
+                return;
+            }
+            setAdbModalBody(
+                '<div class="adb-msg adb-err">' + escHtml(data.detail || data.message || (t('toast_failed') || '失败')) + '</div>' +
+                '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>'
+            );
+            return;
+        }
+        var logHtml = data.output
+            ? ('<div class="adb-output-title">' + (t('adb_output') || '安装日志') + '</div><pre class="adb-log">' + escHtml(data.output) + '</pre>')
+            : '';
+        if (data.ok) {
+            setAdbModalBody(
+                '<div class="adb-result adb-ok"><div class="adb-icon">✓</div>' +
+                '<div class="adb-result-title">' + (t('adb_success') || '安装成功') + '</div>' + logHtml +
+                '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div></div>'
+            );
+        } else {
+            setAdbModalBody(
+                '<div class="adb-result adb-fail"><div class="adb-icon">✕</div>' +
+                '<div class="adb-result-title">' + (t('adb_fail') || '安装失败') + '</div>' + logHtml +
+                '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div></div>'
+            );
+        }
+    } catch (e) {
+        setAdbModalBody(
+            '<div class="adb-msg adb-err">' + (t('net_error') || '网络错误') + '</div>' +
+            '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>'
+        );
+    }
+}
+
 initApp();
 </script>
 
@@ -656,6 +1239,16 @@ initApp();
             <button class="btn btn-cancel" onclick="closePreview()" title="关闭">✕</button>
         </div>
         <div class="preview-body" id="previewBody"></div>
+    </div>
+</div>
+<!-- ===== Modal: ADB Install (P-ADB) ===== -->
+<div class="modal-overlay" id="adbModal" onclick="if(event.target===this)closeAdbModal()">
+    <div class="modal-card adb-card">
+        <div class="preview-header">
+            <h2 id="adbModalTitle">ADB 安装</h2>
+            <button class="btn btn-cancel" onclick="closeAdbModal()" title="关闭">✕</button>
+        </div>
+        <div class="adb-body" id="adbModalBody"></div>
     </div>
 </div>
 

@@ -7,11 +7,11 @@
 
 from modules.user.admin import router as admin_router
 from modules.user.auth import router as auth_router
+from modules.user.config import APP_NAME as SERVICE_NAME
 
-SERVICE_NAME = "MinePython"
 SERVICE_VERSION = "4.6.0"
 SERVICE_DESCRIPTION = (
-    "MinePython 用户与鉴权模块 —— 提供登录、令牌管理、用户与角色(RBAC)管理、"
+    f"{SERVICE_NAME} 用户与鉴权模块 —— 提供登录、令牌管理、用户与角色(RBAC)管理、"
     "管理员控制台等接口。文件服务器与审计模块均依赖本基座。"
 )
 

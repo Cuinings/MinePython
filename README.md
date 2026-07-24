@@ -8,20 +8,20 @@
 
 ## 功能特性
 
-| 模块 | 说明 |
-|------|------|
-| 用户系统 | 注册 / 登录（支持昵称）、Token 认证、首次强制改密、登出、改密、注销 |
-| 认证安全 | argon2id 密码哈希；明文密码经 Fernet 对称加密存储；登录失败账户锁 + IP 维度窗口节流（429）；默认口令首次强制改密 |
-| RBAC 权限 | 4 角色（admin / reviewer / uploader / user）× 10 权限码，接口级鉴权 |
-| 管理员面板 | 添加 / 编辑 / 删除用户、审批注册、批量创建、孤儿文件清理 |
-| 审计日志 | 关键动作写入 `audit_log` 并捕获客户端 IP；独立页面 `audit.html` 查看（彩色标签 / 刷新 / 导出 CSV） |
-| 文件管理 | 上传 / 下载 / 删除 / 列表；批量上传、批量删除、批量下载（流式）；分类过滤 + 分页 + 文件名搜索；元数据追踪（上传者 / IP / 时间）；大文件上传进度条 |
-| 文件预览 | 后端 `/api/preview/{path}` 复用下载鉴权 + `Content-Disposition: inline` + Range；前端弹层预览 |
-| 分类管理 | 自动归类（扩展名→分类，规则可配置）+ 手动分类 + 新建 / 删除分类 + 散落文件归位 |
-| 结构化日志 | `RotatingFileHandler` JSON 单行 + 控制台可读文本；密钥实时脱敏；请求访问日志带 `X-Request-ID` |
-| Web 界面 | 登录 → 文件浏览 → 上传 流程；中 / 英 / 俄三语切换 |
-| 部署 | Docker（non-root）+ docker-compose + Nginx + systemd；CI 测试门禁 |
-| Swagger | 在线 API 文档与交互测试（`/docs`，生产环境默认 403 关闭） |
+| 模块      | 说明                                                                                   |
+| ------- | ------------------------------------------------------------------------------------ |
+| 用户系统    | 注册 / 登录（支持昵称）、Token 认证、首次强制改密、登出、改密、注销                                               |
+| 认证安全    | argon2id 密码哈希；明文密码经 Fernet 对称加密存储；登录失败账户锁 + IP 维度窗口节流（429）；默认口令首次强制改密                |
+| RBAC 权限 | 4 角色（admin / reviewer / uploader / user）× 10 权限码，接口级鉴权                               |
+| 管理员面板   | 添加 / 编辑 / 删除用户、审批注册、批量创建、孤儿文件清理                                                      |
+| 审计日志    | 关键动作写入 `audit_log` 并捕获客户端 IP；独立页面 `audit.html` 查看（彩色标签 / 刷新 / 导出 CSV）                |
+| 文件管理    | 上传 / 下载 / 删除 / 列表；批量上传、批量删除、批量下载（流式）；分类过滤 + 分页 + 文件名搜索；元数据追踪（上传者 / IP / 时间）；大文件上传进度条 |
+| 文件预览    | 后端 `/api/preview/{path}` 复用下载鉴权 + `Content-Disposition: inline` + Range；前端弹层预览       |
+| 分类管理    | 自动归类（扩展名→分类，规则可配置）+ 手动分类 + 新建 / 删除分类 + 散落文件归位                                        |
+| 结构化日志   | `RotatingFileHandler` JSON 单行 + 控制台可读文本；密钥实时脱敏；请求访问日志带 `X-Request-ID`                |
+| Web 界面  | 登录 → 文件浏览 → 上传 流程；中 / 英 / 俄三语切换                                                      |
+| 部署      | Docker（non-root）+ docker-compose + Nginx + systemd；CI 测试门禁                           |
+| Swagger | 在线 API 文档与交互测试（`/docs`，生产环境默认 403 关闭）                                                |
 
 ---
 
@@ -60,11 +60,11 @@ python server.py
 
 启动后访问：
 
-| 入口 | 地址 |
-|------|------|
-| Web 管理界面 | `http://localhost:8000` |
-| Swagger API 文档 | `http://localhost:8000/docs` |
-| ReDoc 文档 | `http://localhost:8000/redoc` |
+| 入口             | 地址                            |
+| -------------- | ----------------------------- |
+| Web 管理界面       | `http://localhost:8000`       |
+| Swagger API 文档 | `http://localhost:8000/docs`  |
+| ReDoc 文档       | `http://localhost:8000/redoc` |
 
 > 首次启动会自动建库、种子化 RBAC 角色/权限，并执行 Alembic 迁移（纳管数据库）。
 
@@ -167,12 +167,12 @@ alembic upgrade head --sql             # 仅打印将执行的 SQL（离线审�
 
 启动时自动种子化以下角色与权限映射（可在 `modules/user/database.py` 的 `ROLES` / `PERMISSIONS` 中调整）：
 
-| 角色 | 权限 |
-|------|------|
-| `admin` | 全部权限（含查看全部审计 `audit:view`） |
+| 角色         | 权限                                                              |
+| ---------- | --------------------------------------------------------------- |
+| `admin`    | 全部权限（含查看全部审计 `audit:view`）                                      |
 | `reviewer` | 浏览 / 上传 / 下载 / 删本人文件、查看用户、审批用户、`audit:view` + `audit:view_self` |
-| `uploader` | 浏览 / 上传 / 下载 / 删除本人文件 + `audit:view_self` |
-| `user` | 浏览 / 上传 / 下载 / 删除本人文件 + `audit:view_self` |
+| `uploader` | 浏览 / 上传 / 下载 / 删除本人文件 + `audit:view_self`                       |
+| `user`     | 浏览 / 上传 / 下载 / 删除本人文件 + `audit:view_self`                       |
 
 权限码：`file:list` `file:upload` `file:download` `file:delete_self` `file:delete_any` `category:manage` `user:read` `user:manage` `user:approve` `audit:view`（查看全部）`audit:view_self`（查看本人，所有登录用户持有）。
 
@@ -186,64 +186,64 @@ alembic upgrade head --sql             # 仅打印将执行的 SQL（离线审�
 
 ### 认证（Auth）
 
-| 方法 | 路径 | 权限 | 说明 |
-|------|------|------|------|
-| POST | `/api/auth/register` | 否 | 注册（支持昵称，默认 `user` 角色、待审批） |
-| POST | `/api/auth/login` | 否 | 登录（限流 / 锁定 / 状态校验，返回 token 与权限列表） |
-| POST | `/api/auth/logout` | 登录 | 登出（失效当前会话） |
-| GET | `/api/auth/me` | 登录 | 当前用户资料与权限 |
-| PUT | `/api/auth/me/password` | 登录 | 修改密码 |
-| POST | `/api/auth/me/deactivate` | 登录 | 注销账号 |
+| 方法   | 路径                        | 权限 | 说明                                |
+| ---- | ------------------------- | -- | --------------------------------- |
+| POST | `/api/auth/register`      | 否  | 注册（支持昵称，默认 `user` 角色、待审批）         |
+| POST | `/api/auth/login`         | 否  | 登录（限流 / 锁定 / 状态校验，返回 token 与权限列表） |
+| POST | `/api/auth/logout`        | 登录 | 登出（失效当前会话）                        |
+| GET  | `/api/auth/me`            | 登录 | 当前用户资料与权限                         |
+| PUT  | `/api/auth/me/password`   | 登录 | 修改密码                              |
+| POST | `/api/auth/me/deactivate` | 登录 | 注销账号                              |
 
 ### 文件（Files）
 
-| 方法 | 路径 | 权限 | 说明 |
-|------|------|------|------|
-| GET | `/api/files` | file:list | 文件列表 `?category=&search=&page=&page_size=` |
-| POST | `/api/upload` | file:upload | 单文件上传（`category=auto` 自动分类或指定） |
-| POST | `/api/upload/multiple` | file:upload | 批量上传 |
-| GET | `/api/download/{path}` | file:download | 下载 |
-| GET | `/api/preview/{path}` | file:download | 预览（inline + Range） |
-| DELETE | `/api/files/{path}` | file:delete_self(本人) 或 file:delete_any | 删除 |
-| POST | `/api/files/batch-delete` | file:delete_self / file:delete_any | 批量删除 |
-| POST | `/api/files/batch-download` | file:download | 批量下载（磁盘临时文件 + 分块流式 + 文件数/总大小双上限） |
+| 方法     | 路径                          | 权限                                     | 说明                                         |
+| ------ | --------------------------- | -------------------------------------- | ------------------------------------------ |
+| GET    | `/api/files`                | file:list                              | 文件列表 `?category=&search=&page=&page_size=` |
+| POST   | `/api/upload`               | file:upload                            | 单文件上传（`category=auto` 自动分类或指定）             |
+| POST   | `/api/upload/multiple`      | file:upload                            | 批量上传                                       |
+| GET    | `/api/download/{path}`      | file:download                          | 下载                                         |
+| GET    | `/api/preview/{path}`       | file:download                          | 预览（inline + Range）                         |
+| DELETE | `/api/files/{path}`         | file:delete_self(本人) 或 file:delete_any | 删除                                         |
+| POST   | `/api/files/batch-delete`   | file:delete_self / file:delete_any     | 批量删除                                       |
+| POST   | `/api/files/batch-download` | file:download                          | 批量下载（磁盘临时文件 + 分块流式 + 文件数/总大小双上限）           |
 
 ### 分类（Categories）
 
-| 方法 | 路径 | 权限 | 说明 |
-|------|------|------|------|
-| GET | `/api/categories` | file:list | 分类列表（含每类文件数 / 总大小） |
-| GET | `/api/categories/mapping` | category:manage | 扩展名 → 分类映射规则列表 |
-| PUT | `/api/categories/mapping` | category:manage | 新增 / 更新映射规则 `{extension, category}` |
-| DELETE | `/api/categories/mapping/{extension}` | category:manage | 删除映射规则 |
-| DELETE | `/api/categories/{name}` | category:manage | 删除分类（连带文件与目录） |
-| POST | `/api/organize` | category:manage | 把根目录散落文件按扩展名归位到分类子目录 |
+| 方法     | 路径                                    | 权限              | 说明                                  |
+| ------ | ------------------------------------- | --------------- | ----------------------------------- |
+| GET    | `/api/categories`                     | file:list       | 分类列表（含每类文件数 / 总大小）                  |
+| GET    | `/api/categories/mapping`             | category:manage | 扩展名 → 分类映射规则列表                      |
+| PUT    | `/api/categories/mapping`             | category:manage | 新增 / 更新映射规则 `{extension, category}` |
+| DELETE | `/api/categories/mapping/{extension}` | category:manage | 删除映射规则                              |
+| DELETE | `/api/categories/{name}`              | category:manage | 删除分类（连带文件与目录）                       |
+| POST   | `/api/organize`                       | category:manage | 把根目录散落文件按扩展名归位到分类子目录                |
 
 ### 管理（Admin）
 
-| 方法 | 路径 | 权限 | 说明 |
-|------|------|------|------|
-| GET | `/api/admin/users` | user:read | 用户列表（已剥离密码哈希） |
-| POST | `/api/admin/users` | user:manage | 创建用户（可指定角色） |
-| PUT | `/api/admin/users/{id}` | user:manage | 修改用户 |
-| DELETE | `/api/admin/users/{id}` | user:manage | 删除用户（不可删自己 / 默认账号） |
-| POST | `/api/admin/users/batch` | user:manage | 批量创建 |
-| GET | `/api/admin/pending` | user:read | 待审批用户列表 |
-| PUT | `/api/admin/users/{id}/approve` | user:approve | 审批通过 |
-| PUT | `/api/admin/users/{id}/reject` | user:approve | 审批拒绝 |
-| GET | `/api/admin/audit` | audit:view | 审计日志（全部） |
-| POST | `/api/admin/cleanup` | admin | 孤儿文件清理（`dry_run` 预览 / 真实清理，写审计） |
+| 方法     | 路径                              | 权限           | 说明                              |
+| ------ | ------------------------------- | ------------ | ------------------------------- |
+| GET    | `/api/admin/users`              | user:read    | 用户列表（已剥离密码哈希）                   |
+| POST   | `/api/admin/users`              | user:manage  | 创建用户（可指定角色）                     |
+| PUT    | `/api/admin/users/{id}`         | user:manage  | 修改用户                            |
+| DELETE | `/api/admin/users/{id}`         | user:manage  | 删除用户（不可删自己 / 默认账号）              |
+| POST   | `/api/admin/users/batch`        | user:manage  | 批量创建                            |
+| GET    | `/api/admin/pending`            | user:read    | 待审批用户列表                         |
+| PUT    | `/api/admin/users/{id}/approve` | user:approve | 审批通过                            |
+| PUT    | `/api/admin/users/{id}/reject`  | user:approve | 审批拒绝                            |
+| GET    | `/api/admin/audit`              | audit:view   | 审计日志（全部）                        |
+| POST   | `/api/admin/cleanup`            | admin        | 孤儿文件清理（`dry_run` 预览 / 真实清理，写审计） |
 
 ### 审计（Audit）
 
-| 方法 | 路径 | 权限 | 说明 |
-|------|------|------|------|
+| 方法  | 路径                | 权限              | 说明                                                         |
+| --- | ----------------- | --------------- | ---------------------------------------------------------- |
 | GET | `/api/audit/logs` | audit:view_self | 审计日志（独立入口 `audit.html`，**所有登录用户可见**；普通用户仅见本人，管理员 / 审核员见全部） |
 
 ### 页面（静态）
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
+| 方法  | 路径                                                                  | 说明            |
+| --- | ------------------------------------------------------------------- | ------------- |
 | GET | `/` , `/index.html` , `/files.html` , `/users.html` , `/audit.html` | Web 管理界面（热重载） |
 
 ---
@@ -370,7 +370,7 @@ pytest tests/test_security.py   # 仅安全 / 并发边界用例
 
 ## Android 客户端调用示例
 
-```kotlin
+````kotlin
 // Retrofit 接口定义
 interface FileApi {
     @POST("api/auth/login")
@@ -391,4 +391,92 @@ interface FileApi {
     @GET("api/download/{path}")
     suspend fun downloadFile(@Path("path", encoded = true) path: String): Response<ResponseBody>
 }
+
+---
+
+## 故障排查（Git 工作流）
+
+### 1. `git add` 报错：`invalid path 'nul' unable to add 'nul' to index`
+
+**根因**：`nul` 是 Windows 保留设备名（空设备），内核禁止把它当普通文件打开，Git 在 Windows 上无法将其加入索引。仓库根目录的 `nul` 通常是某次误重定向（如 `> nul` 写错）产生的垃圾文件，无保留价值。
+
+**已处理**：仓库根 `.gitignore` 已忽略 `nul` 及其他保留名（`con`/`prn`/`aux`/`com1-9`/`lpt1-9`），以及 `__pycache__/`、`*.pyc`、`.venv*/`、`*.db`/`*.db-wal`、`logs/`、`uploads/`、`*.log` 等，`git add .` 不会再尝试添加 `nul`。建议顺手删掉该垃圾文件：
+
+```bash
+# Git Bash / MSYS（用 //./ 设备前缀绕开保留名限制）
+rm -f //./C:/Users/Work/PycharmProjects/MinePython/nul
+# 或系统 CMD
+del \\.\C:\Users\Work\PycharmProjects\MinePython\nul
+# 或 PowerShell
+Remove-Item -LiteralPath "\\.\C:\Users\Work\PycharmProjects\MinePython\nul" -Force
+````
+
+### 2. `git add` 大量警告：`LF will be replaced by CRLF`
+
+**原因**：`core.autocrlf=true`（Windows 默认）提示 vendored 的 `.js/.ts/.json/.md` 当前为 LF，将来 checkout 会转成 CRLF。**仅为提示，不阻塞提交。**
+
+**已处理**：仓库根 `.gitattributes` 已对源代码统一以 LF 存储/检出（`*.bat`/`*.cmd` 保留 CRLF，图片/压缩包/证书标记为二进制），此类警告不再出现。若此前已跟踪文件换行符混乱，可 `git add --renormalize .` 一次性规范化。
+
+### 3. `git push` 报错：`fatal: unable to access '...github.com...': Recv failure: Connection was reset`
+
+**现象**：TCP 连接被重置（RST），多发生在受限网络（公司 / 校园网，或部分地区访问 GitHub 不稳定）或大体积 push 走 HTTP/2 时。属于网络层问题，非仓库或认证错误。
+
+按以下顺序排查：
+
+**① 重试 + 关闭 HTTP/2（最常见有效）**
+
+HTTP/2 多路复用在不稳定链路上极易触发 reset，强制回退 HTTP/1.1 往往直接解决：
+
+```bash
+git config --global http.version HTTP/1.1
+git config --global http.postBuffer 524288000
+git push
+```
+
+**② 本机有代理（Clash / Shadowsocks / V2Ray）**
+
+把 Git 走本地代理（端口按工具实际填写，Clash 常为 7890，SS 常为 1080）：
+
+```bash
+git config --global http.proxy  http://127.0.0.1:7890
+git config --global https.proxy http://127.0.0.1:7890
+# 若是 socks5 代理：socks5://127.0.0.1:1080
+git push
+```
+
+用完取消代理：`git config --global --unset http.proxy` 与 `git config --global --unset https.proxy`。
+
+**③ 端口 22 被封 → 改用 SSH over 443（最稳兜底）**
+
+编辑 `~/.ssh/config`（没有则新建）：
+
+```
+Host github.com
+  Hostname ssh.github.com
+  Port 443
+```
+
+然后切换远程协议（需先在 GitHub 添加你的 SSH 公钥）：
+
+```bash
+git remote set-url origin git@github.com:Cuinings/MinePython.git
+git push
+```
+
+443 端口通常不被封，此路几乎总能通。
+
+**④ 临时用 GitHub 加速镜像**
+
+```bash
+git remote set-url origin https://ghproxy.com/https://github.com/Cuinings/MinePython.git
+git push
+# 推送成功后改回官方地址
+git remote set-url origin https://github.com/Cuinings/MinePython.git
+```
+
+> 注意：部分镜像仅支持拉取、推送不一定稳定，成功后务必改回官方地址。
+
+**排查定位**：`curl -I https://github.com` 同样 reset / 超时 → 确属网络被重置，按 ②③ 处理；若 curl 正常但 git 仍失败 → 优先试 ①。
+
+```
 ```

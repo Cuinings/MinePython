@@ -1,0 +1,33 @@
+# 自动识别文本文件，仓库内统一以 LF 存储，避免 Windows/Mac/Linux 换行符混乱
+* text=auto
+
+# 源代码强制使用 LF，彻底消除 "LF will be replaced by CRLF" 的警告
+*.ts   text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.py   text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+
+# Windows 批处理文件保留 CRLF（否则在 cmd 中可能无法正常运行）
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 二进制文件显式标记，避免被当作文本处理
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.apk  binary
+*.mp4  binary
+*.woff binary
+*.woff2 binary
+*.zip  binary
+*.pem  binary
+*.db   binary

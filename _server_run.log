@@ -1,0 +1,10 @@
+2026-07-23 12:28:33,676 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.schemas
+2026-07-23 12:28:33,676 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.tables
+2026-07-23 12:28:33,676 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.types
+2026-07-23 12:28:33,676 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.constraints
+2026-07-23 12:28:33,677 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.defaults
+2026-07-23 12:28:33,677 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.comments
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.

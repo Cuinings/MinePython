@@ -1,0 +1,25 @@
+{
+  "imports": {
+    "@types/w3c-web-usb": "/static/js/vendor2/_empty.js",
+    "@types/w3c-web-usb/": "/static/js/vendor2/",
+    "@yume-chan/adb": "/static/js/vendor2/@yume-chan/adb/esm/index.js",
+    "@yume-chan/adb/": "/static/js/vendor2/@yume-chan/adb/esm/",
+    "@yume-chan/adb-credential-web": "/static/js/vendor2/@yume-chan/adb-credential-web/esm/index.js",
+    "@yume-chan/adb-credential-web/": "/static/js/vendor2/@yume-chan/adb-credential-web/esm/",
+    "@yume-chan/adb-daemon-webusb": "/static/js/vendor2/@yume-chan/adb-daemon-webusb/esm/index.js",
+    "@yume-chan/adb-daemon-webusb/": "/static/js/vendor2/@yume-chan/adb-daemon-webusb/esm/",
+    "@yume-chan/async": "/static/js/vendor2/@yume-chan/async/esm/index.js",
+    "@yume-chan/async/": "/static/js/vendor2/@yume-chan/async/esm/",
+    "@yume-chan/event": "/static/js/vendor2/@yume-chan/event/esm/index.js",
+    "@yume-chan/event/": "/static/js/vendor2/@yume-chan/event/esm/",
+    "@yume-chan/no-data-view": "/static/js/vendor2/@yume-chan/no-data-view/esm/index.js",
+    "@yume-chan/no-data-view/": "/static/js/vendor2/@yume-chan/no-data-view/esm/",
+    "@yume-chan/stream-extra": "/static/js/vendor2/@yume-chan/stream-extra/esm/index.js",
+    "@yume-chan/stream-extra/": "/static/js/vendor2/@yume-chan/stream-extra/esm/",
+    "@yume-chan/struct": "/static/js/vendor2/@yume-chan/struct/esm/index.js",
+    "@yume-chan/struct/": "/static/js/vendor2/@yume-chan/struct/esm/",
+    "node:child_process": "/static/js/vendor2/_empty.js",
+    "node:fs": "/static/js/vendor2/_empty.js",
+    "node:fs/promises": "/static/js/vendor2/_empty.js"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "imports": {
+    "@yume-chan/adb": "/static/js/vendor/@yume-chan/adb/esm/index.js",
+    "@yume-chan/adb/": "/static/js/vendor/@yume-chan/adb/esm/",
+    "@yume-chan/adb-backend-webusb": "/static/js/vendor/@yume-chan/adb-backend-webusb/esm/index.js",
+    "@yume-chan/adb-backend-webusb/": "/static/js/vendor/@yume-chan/adb-backend-webusb/esm/",
+    "@yume-chan/async": "/static/js/vendor/@yume-chan/async/esm/index.js",
+    "@yume-chan/async/": "/static/js/vendor/@yume-chan/async/esm/",
+    "@yume-chan/event": "/static/js/vendor/@yume-chan/event/esm/index.js",
+    "@yume-chan/event/": "/static/js/vendor/@yume-chan/event/esm/",
+    "@yume-chan/struct": "/static/js/vendor/@yume-chan/struct/esm/index.js",
+    "@yume-chan/struct/": "/static/js/vendor/@yume-chan/struct/esm/",
+    "@yume-chan/stream-extra": "/static/js/vendor/@yume-chan/stream-extra/esm/index.js",
+    "@yume-chan/stream-extra/": "/static/js/vendor/@yume-chan/stream-extra/esm/",
+    "@yume-chan/dataview-bigint-polyfill": "/static/js/vendor/@yume-chan/dataview-bigint-polyfill/esm/index.js",
+    "@yume-chan/dataview-bigint-polyfill/": "/static/js/vendor/@yume-chan/dataview-bigint-polyfill/esm/",
+    "tslib": "/static/js/vendor/tslib/tslib.es6.js",
+    "tslib/": "/static/js/vendor/tslib/./",
+    "@types/w3c-web-usb": "/static/js/vendor/_empty.js",
+    "@types/w3c-web-usb/": "/static/js/vendor/"
+  }
+}

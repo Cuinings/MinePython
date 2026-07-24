@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">MinePython</title>
+    <link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+
+<!-- ===================== MAIN APP ===================== -->
+<div class="app-container" id="appScreen">
+    <div class="app-header">
+        <h1 data-i18n="h1">📁 MinePython</h1>
+        <div class="header-right">
+            <button class="ucenter-btn" onclick="goUserCenter()" data-i18n="ucenter">用户中心</button>
+            <button class="logout-btn" onclick="doLogout()" data-i18n="logout">退出</button>
+            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
+            <div class="lang-wrapper">
+                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
+                <div class="lang-menu" id="langMenu">
+                    <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
+                    <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
+                    <button class="lang-menu-item" data-lang="ru" onclick="switchToLang('ru')">Русский</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SETTINGS VIEW (standalone module entry) ===== -->
+    <div id="viewSettings">
+        <div class="back-row">
+            <button class="back-btn" onclick="goHome()" data-i18n="back_home">← 返回首页</button>
+        </div>
+        <h2 class="section-header" data-i18n="settings">设置</h2>
+
+        <!-- Site settings panel (admin only) -->
+        <div id="panelSite" style="display:none;margin-bottom:18px">
+            <div class="section-header">
+                <h3 data-i18n="site_settings">站点设置</h3>
+            </div>
+            <div class="file-card" style="padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <label data-i18n="site_name" style="font-size:13px;color:var(--dim);white-space:nowrap">站点名称</label>
+                <input type="text" id="siteNameInput" maxlength="40" data-i18n-placeholder="site_name_ph" style="flex:1;min-width:200px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text)">
+                <button class="btn btn-save" id="saveSiteBtn" onclick="saveSiteName()" data-i18n="site_save">保存</button>
+            </div>
+            <div id="siteSavedHint" style="font-size:12px;color:var(--dim);margin-top:6px;display:none"></div>
+        </div>
+
+        <!-- Non-admin fallback / placeholder -->
+        <div id="noSettingsMsg" class="uc-settings-empty" data-i18n="settings_blank">（设置模块开发中，敬请期待）</div>
+    </div>
+</div>
+
+<script src="/static/js/util.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/toast.js"></script>
+<script src="/static/js/auth.js"></script>
+<script src="/static/js/pending.js"></script>
+<script src="/static/js/init.js"></script>
+<script>
+    // ===== Settings page: standalone module navigation =====
+    function goHome() { window.location.href = 'index.html'; }
+    function goUserCenter(tab) { window.location.href = 'users.html' + (tab ? ('?tab=' + tab) : ''); }
+
+    // ==================== Site settings (admin only) ====================
+    async function loadSiteName() {
+        if (authRole !== 'admin') return;
+        try {
+            var res = await fetch('/api/admin/site', { headers: getAuthHeaders() });
+            if (res.ok) {
+                var d = await res.json();
+                var inp = document.getElementById('siteNameInput');
+                if (inp && d.name) inp.value = d.name;
+            } else {
+                console.warn('loadSiteName failed:', res.status);
+            }
+        } catch (e) {
+            console.warn('loadSiteName network error:', e);
+        }
+    }
+
+    async function saveSiteName() {
+        var inp = document.getElementById('siteNameInput');
+        if (!inp) return;
+        var name = inp.value.trim();
+        if (!name) { toast(t('fill_fields') || 'Fill all fields', true); return; }
+        var btn = document.getElementById('saveSiteBtn');
+        if (btn) btn.disabled = true;
+        try {
+            var res = await fetch('/api/admin/site', {
+                method: 'PUT',
+                headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()),
+                body: JSON.stringify({ name: name })
+            });
+            var data = null;
+            try { data = await res.json(); } catch (e) { data = {}; }
+            if (res.ok && data && data.ok) {
+                try { setAppName(data.name || name); } catch (e) {}
+                toast(t('site_saved') || 'Saved');
+                var hint = document.getElementById('siteSavedHint');
+                if (hint) { hint.style.display = 'block'; hint.textContent = (t('site_saved') || 'Saved'); }
+            } else {
+                var msg = (data && (data.detail || data.message)) || (t('toast_failed') || 'Failed');
+                toast(msg, true);
+            }
+        } catch (e) {
+            var detail = (e && e.message) ? e.message : '';
+            toast((t('net_error') || 'Network error') + (detail ? (': ' + detail) : ''), true);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    // Show the site-settings editor only for admin accounts; everyone else
+    // sees the generic "module under development" placeholder instead.
+    function setupSettingsView() {
+        var isAdmin = (authRole === 'admin');
+        var panelSite = document.getElementById('panelSite');
+        var noSettings = document.getElementById('noSettingsMsg');
+        if (panelSite) panelSite.style.display = isAdmin ? 'block' : 'none';
+        if (noSettings) noSettings.style.display = isAdmin ? 'none' : 'block';
+        if (isAdmin) loadSiteName();
+    }
+
+    // After login / on load, show the settings view.
+    function onAppReady() {
+        var v = document.getElementById('viewSettings');
+        if (v) v.style.display = 'block';
+        setupSettingsView();
+    }
+
+    initApp();
+</script>
+</body>
+</html>

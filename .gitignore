@@ -1,33 +1,54 @@
-# Environment
-.env
+# ===== Windows 保留设备名（Git 在 Windows 上无法跟踪，会报 invalid path 'nul'） =====
+# nul 是 Windows 的空设备名，不能当作普通文件添加到 Git 索引。
+# 该文件通常是误产生的垃圾文件，建议直接删除（见下方说明），这里先忽略以防 git add 报错。
+nul
+# 其他 Windows 保留名（理论上也绝不该作为文件名存在）
+con
+prn
+aux
+com1
+com2
+com3
+com4
+com5
+com6
+com7
+com8
+com9
+lpt1
+lpt2
+lpt3
+lpt4
+lpt5
+lpt6
+lpt7
+lpt8
+lpt9
+
+# ===== Python =====
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
 .venv/
+.venv313/
+venv/
+env/
 
-# IDE
-.idea/
-
-# Database
-server.db
-server.db-journal
-server.db-wal
-server.db-shm
-
-# Uploaded files (runtime data)
-uploads/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Encryption key (local, never commit)
-.fernet_key
-
-# Operational logs (rotating, runtime-generated)
+# ===== 运行时数据 =====
+*.db
+*.db-shm
+*.db-wal
 logs/
-server.log
+*.log
+uploads/
+server_restart.log
 server_v46.log
-*.log.1
-*.log.2
-*.log.3
+_server_run.log
+
+# ===== 密钥 / 证书（如含私密内容请勿提交） =====
+# ssl/ 下的 .pem 如需版本管理请自行调整
+
+# ===== 编辑器 / 系统 =====
+.idea/
+.vscode/
+.DS_Store

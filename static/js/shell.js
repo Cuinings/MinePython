@@ -24,6 +24,7 @@ function renderHeader() {
         '<div class="app-header">' +
             '<h1 data-i18n="h1">📁 MinePython</h1>' +
             '<div class="header-right">' +
+                '<button class="ucenter-btn" onclick="goSuggest()" title="功能需求建议"><span>💡</span> <span data-i18n="nav_suggest">建议</span></button>' +
                 '<button class="ucenter-btn" onclick="goUserCenter()" data-i18n="ucenter">用户中心</button>' +
                 '<button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换风格" aria-label="切换风格" aria-pressed="false">🌙</button>' +
                 '<div class="lang-wrapper">' +
@@ -44,6 +45,7 @@ window.goAudit = function () { location.hash = '#/audit'; };
 window.goSettings = function () { location.hash = '#/settings'; };
 window.goUserCenter = function (tab) { location.hash = '#/users' + (tab ? ('?tab=' + tab) : ''); };
 window.goApi = function () { window.location.href = '/api'; };
+window.goSuggest = function () { location.hash = '#/suggest'; };
 
 // ---- Router ----
 var _currentView = null;

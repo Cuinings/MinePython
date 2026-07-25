@@ -360,6 +360,54 @@
     </div>
 </template>
 
+<!-- ===== SUGGEST (功能需求建议栏) ===== -->
+<template id="tpl-suggest">
+    <div id="viewSuggest">
+        <div class="section-header">
+            <h2 data-i18n="suggest_title">功能需求建议栏</h2>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" id="suggestScopeBar">
+                <select id="suggestScope" class="audit-filter-input" style="display:none" onchange="loadSuggestions()">
+                    <option value="self" data-i18n="audit_scope_self">仅本人</option>
+                    <option value="all" data-i18n="suggest_all">全部</option>
+                </select>
+                <select id="suggestStatus" class="audit-filter-input" onchange="loadSuggestions()">
+                    <option value="">全部状态</option>
+                    <option value="pending" data-i18n="suggest_status_pending">待处理</option>
+                    <option value="accepted" data-i18n="suggest_status_accepted">已采纳</option>
+                    <option value="rejected" data-i18n="suggest_status_rejected">已拒绝</option>
+                    <option value="done" data-i18n="suggest_status_done">已实现</option>
+                </select>
+                <input id="suggestSearch" class="audit-filter-input" data-i18n-placeholder="suggest_search_ph" placeholder="搜索建议…" onkeydown="if(event.key==='Enter')loadSuggestions()">
+                <button class="btn btn-xs" onclick="loadSuggestions()" style="color:var(--accent);border-color:var(--accent)" data-i18n="audit_refresh">刷新</button>
+            </div>
+        </div>
+
+        <!-- Submission form -->
+        <div class="file-card" style="padding:14px;margin-bottom:16px">
+            <div class="section-header" style="margin-bottom:10px">
+                <h3 data-i18n="suggest_form">提交新建议</h3>
+            </div>
+            <label data-i18n="suggest_title_ph" style="font-size:13px;color:var(--dim)">标题</label>
+            <input type="text" id="suggestTitle" maxlength="120" data-i18n-placeholder="suggest_title_ph" placeholder="一句话描述你的建议" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text);margin:4px 0 10px">
+            <label data-i18n="suggest_category" style="font-size:13px;color:var(--dim)">分类</label>
+            <select id="suggestCategory" style="padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text);margin:4px 0 10px;width:100%">
+                <option value="feature" data-i18n="suggest_cat_feature">功能新增</option>
+                <option value="ux" data-i18n="suggest_cat_ux">体验优化</option>
+                <option value="bug" data-i18n="suggest_cat_bug">Bug 反馈</option>
+                <option value="other" data-i18n="suggest_cat_other">其他</option>
+            </select>
+            <label data-i18n="suggest_body" style="font-size:13px;color:var(--dim)">详细描述</label>
+            <textarea id="suggestBody" rows="4" data-i18n-placeholder="suggest_body_ph" placeholder="补充背景、预期效果…" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text);margin:4px 0 10px;resize:vertical"></textarea>
+            <div class="error" id="suggestErr" style="display:none"></div>
+            <button class="btn btn-save" onclick="submitSuggestion()" data-i18n="suggest_submit">提交建议</button>
+        </div>
+
+        <div class="file-list" id="suggestList">
+            <div class="center-loading"><div class="spinner"></div></div>
+        </div>
+    </div>
+</template>
+
 <!-- ===================== SCRIPTS ===================== -->
 <script src="/static/js/util.js"></script>
 <script src="/static/js/i18n.js"></script>

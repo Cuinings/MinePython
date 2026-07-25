@@ -12,3 +12,12 @@ cryptography>=42.0.0
 # auto-applies pending migrations on startup, so new schema changes should add
 # a revision under migrations/versions/ instead of relying on create_all alone.
 alembic>=1.13.0
+# ARCH-9: JWT access/refresh token signing & verification (stateless access JWT).
+PyJWT>=2.8.0
+# ARCH-10: Postgres sync driver (psycopg3) — only used when DATABASE_URL is set;
+# harmless to install on SQLite-only deployments (database.py auto-uses it).
+psycopg[binary]>=3.1.0
+# ARCH-10 (optional): shared upload rate limiter for multi-instance deploys.
+# Only required when RATE_LIMIT_STORE=redis://... is set; lazy-imported so it is
+# safe to leave uninstalled on single-instance (SQLite) deployments.
+redis>=5.0.0

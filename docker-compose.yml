@@ -12,6 +12,12 @@ services:
       # Encryption key MUST persist — losing it makes stored plaintext copies
       # unrecoverable. Mounted from the host, never baked into the image.
       - ./.fernet_key:/app/.fernet_key
+      # Site-level settings edited from the admin UI (site name, max upload size)
+      # are persisted into this .env by the running container. Mounting the host
+      # .env keeps those edits across container recreations. NOTE: the host file
+      # MUST exist before `docker compose up` (even empty) — otherwise Docker
+      # creates the mount as a *directory* and the app cannot write to it.
+      - ./.env:/app/.env
       # TLS cert/key for HTTPS. WebUSB (browser ADB install) requires a
       # secure context, so the page must be served over HTTPS. Generate
       # cert.pem/key.pem into ./ssl on the host, then set SSL_CERTFILE /
@@ -23,12 +29,15 @@ services:
       # ---- Production settings (override via a .env file or your orchestrator) ----
       # Lock CORS to the public origin(s) that serve the UI.
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
-      # Session token lifetime (hours) and expired-token sweep interval (seconds).
-      - TOKEN_TTL_HOURS=${TOKEN_TTL_HOURS:-168}
-      - TOKEN_CLEANUP_INTERVAL_SECONDS=${TOKEN_CLEANUP_INTERVAL_SECONDS:-3600}
-      # Change the bootstrap admin password on first boot!
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
-      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      # ---- ARCH-10: shared database for horizontal scaling ----
+      # Unset (default) = local SQLite file. To scale out, run the optional
+      # `db` service below (profile `pg`) and point every instance at it:
+      #   DATABASE_URL=postgresql://fileserver:fileserver@db:5432/minepython
+      - DATABASE_URL=${DATABASE_URL:-}
+      # ---- ARCH-9: JWT signing secret (MUST be identical on every instance) ----
+      # Generate once and share across nodes, e.g.:
+      #   JWT_SECRET=$(python -c "import secrets;print(secrets.token_hex(32))")
+      - JWT_SECRET=${JWT_SECRET:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # --- HTTPS for WebUSB (optional). Set both to enable TLS on :8000. ---
       # cert/key live in ./ssl (mounted above). Leave empty to stay on HTTP.
@@ -45,3 +54,29 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # Optional shared Postgres (ARCH-10). Disabled by default — the app uses the
+  # local SQLite file unless DATABASE_URL is set. Bring it up with:
+  #   docker compose --profile pg up -d
+  # Then set DATABASE_URL on the fileserver (see the env block above) to:
+  #   postgresql://fileserver:fileserver@db:5432/minepython
+  # All fileserver replicas must share this same DATABASE_URL to scale out.
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    profiles: ["pg"]
+    container_name: fileserver-db
+    environment:
+      - POSTGRES_USER=fileserver
+      - POSTGRES_PASSWORD=fileserver
+      - POSTGRES_DB=minepython
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fileserver -d minepython"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

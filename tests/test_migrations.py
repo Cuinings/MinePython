@@ -18,7 +18,7 @@ from modules.user.database import engine, init_db
 
 ROOT = Path(__file__).parent.parent
 EXPECTED_TABLES = {
-    "users", "tokens", "files", "audit_log",
+    "users", "refresh_tokens", "files", "audit_log",
     "roles", "permissions", "role_permissions", "alembic_version",
     "ext_category",
 }

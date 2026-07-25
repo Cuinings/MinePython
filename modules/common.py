@@ -12,6 +12,7 @@ import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -21,14 +22,16 @@ from fastapi.staticfiles import StaticFiles
 
 from modules.user import config as user_config
 from modules.user.config import (
+    AUDIT_LOG_RETENTION_DAYS,
     ORPHAN_CLEANUP_AUTO,
     ORPHAN_CLEANUP_INTERVAL_SECONDS,
-    TOKEN_CLEANUP_INTERVAL_SECONDS,
+    PERMISSION_CACHE_REFRESH_SECONDS,
+    REFRESH_TOKEN_CLEANUP_INTERVAL_SECONDS,
 )
-from modules.user.database import SessionLocal, init_db
+from modules.user.database import SessionLocal, init_db, refresh_permissions
 from modules.user.auth import purge_expired_tokens
 from modules.user.logging_config import setup_logging
-from modules.user.utils import _client_ip
+from modules.user.utils import _client_ip, purge_audit_log
 
 # Web UI 根目录（项目根，存 index.html / files.html / users.html / audit.html / api.html）
 WEB_ROOT = Path(__file__).parent.parent
@@ -90,6 +93,35 @@ def create_app(
     * ``include_api_docs`` — when True, serve ``/docs``, ``/redoc``,
       ``/openapi.json`` and the ``/api`` doc-portal page (gated by DEBUG in prod).
     """
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        init_db()
+        removed = purge_expired_tokens()
+        log.info(
+            "Module app started",
+            extra={"event": "startup", "expired_tokens_purged": removed},
+        )
+        # Horizontal-scaling safety net: Postgres + a shared JWT secret are
+        # required for instances to agree on token validity. Warn loudly if the
+        # former is set but the latter is not (auto-generated per-instance
+        # secrets would make instances reject each other's tokens).
+        if user_config.DATABASE_URL and not user_config.JWT_SECRET:
+            log.warning(
+                "DATABASE_URL is set (multi-instance) but JWT_SECRET is not — "
+                "each instance will generate its own secret and reject the "
+                "others' access tokens. Set a shared JWT_SECRET for all instances.",
+                extra={"event": "config_warn", "issue": "missing_shared_jwt_secret"},
+            )
+        if REFRESH_TOKEN_CLEANUP_INTERVAL_SECONDS and REFRESH_TOKEN_CLEANUP_INTERVAL_SECONDS > 0:
+            asyncio.create_task(_token_cleanup_loop())
+        if PERMISSION_CACHE_REFRESH_SECONDS and PERMISSION_CACHE_REFRESH_SECONDS > 0:
+            asyncio.create_task(_permission_cache_loop())
+        if AUDIT_LOG_RETENTION_DAYS and AUDIT_LOG_RETENTION_DAYS > 0:
+            asyncio.create_task(_audit_cleanup_loop())
+        if ORPHAN_CLEANUP_INTERVAL_SECONDS and ORPHAN_CLEANUP_INTERVAL_SECONDS > 0:
+            asyncio.create_task(_orphan_scan_loop())
+        yield
+
     app = FastAPI(
         title=title,
         version=version,
@@ -97,6 +129,7 @@ def create_app(
         docs_url="/docs" if include_api_docs else None,
         redoc_url="/redoc" if include_api_docs else None,
         openapi_url="/openapi.json" if include_api_docs else None,
+        lifespan=lifespan,
     )
 
     # CORS is locked to explicit origins (never "*" together with credentials).
@@ -211,8 +244,12 @@ def create_app(
 
     @app.middleware("http")
     async def gate_api_docs(request: Request, call_next):
-        """Block interactive docs/OpenAPI when not in debug mode (R3)."""
-        if not user_config.DEBUG and request.url.path in _DOCS_PATHS:
+        """Block interactive docs/OpenAPI unless explicitly enabled (R3).
+
+        Controlled by API_DOCS_ENABLED (which defaults to DEBUG for
+        safe-by-default), so docs can stay reachable even with DEBUG off.
+        """
+        if not user_config.API_DOCS_ENABLED and request.url.path in _DOCS_PATHS:
             return JSONResponse(status_code=403, content={"detail": "Not found"})
         return await call_next(request)
 
@@ -304,20 +341,48 @@ def create_app(
             return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
 
     # ------------------------------------------------------------------
-    # Background: periodically purge expired session tokens (ARCH-3)
+    # Background: periodically purge expired refresh tokens (ARCH-9)
     # ------------------------------------------------------------------
     async def _token_cleanup_loop():
         while True:
-            await asyncio.sleep(TOKEN_CLEANUP_INTERVAL_SECONDS)
+            await asyncio.sleep(REFRESH_TOKEN_CLEANUP_INTERVAL_SECONDS)
             try:
                 removed = purge_expired_tokens()
                 if removed:
                     log.info(
-                        "Purged expired session tokens",
+                        "Purged expired refresh tokens",
                         extra={"event": "token_cleanup", "removed": removed},
                     )
             except Exception:  # pragma: no cover - defensive
                 log.exception("Token cleanup sweep failed")
+
+    # ------------------------------------------------------------------
+    # Background: periodically reload the in-memory role->permission cache so
+    # permission changes propagate across instances (ARCH-10).
+    # ------------------------------------------------------------------
+    async def _permission_cache_loop():
+        while True:
+            await asyncio.sleep(PERMISSION_CACHE_REFRESH_SECONDS)
+            try:
+                refresh_permissions()
+            except Exception:  # pragma: no cover - defensive
+                log.exception("Permission cache refresh failed")
+
+    # ------------------------------------------------------------------
+    # Background: periodically purge old audit_log rows (retention policy).
+    # ------------------------------------------------------------------
+    async def _audit_cleanup_loop():
+        while True:
+            await asyncio.sleep(max(AUDIT_LOG_RETENTION_DAYS * 60, 60))
+            try:
+                removed = purge_audit_log()
+                if removed:
+                    log.info(
+                        "Purged old audit logs",
+                        extra={"event": "audit_cleanup", "removed": removed},
+                    )
+            except Exception:  # pragma: no cover - defensive
+                log.exception("Audit cleanup sweep failed")
 
     # ------------------------------------------------------------------
     # Background: optionally scan (and delete) orphaned files (P1-6)
@@ -347,19 +412,6 @@ def create_app(
                     scan_and_report()
             except Exception:  # pragma: no cover - defensive
                 log.exception("Orphan scan failed")
-
-    @app.on_event("startup")
-    async def startup():
-        init_db()
-        removed = purge_expired_tokens()
-        log.info(
-            "Module app started",
-            extra={"event": "startup", "expired_tokens_purged": removed},
-        )
-        if TOKEN_CLEANUP_INTERVAL_SECONDS and TOKEN_CLEANUP_INTERVAL_SECONDS > 0:
-            asyncio.create_task(_token_cleanup_loop())
-        if ORPHAN_CLEANUP_INTERVAL_SECONDS and ORPHAN_CLEANUP_INTERVAL_SECONDS > 0:
-            asyncio.create_task(_orphan_scan_loop())
 
     return app
 

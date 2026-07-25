@@ -12,13 +12,35 @@ class AuthRequest(BaseModel):
 
 class AuthResponse(BaseModel):
     ok: bool
-    token: str | None = None
+    token: str | None = None  # back-compat alias for access_token
+    access_token: str | None = None
+    refresh_token: str | None = None
+    expires_in: int | None = None
     message: str = ""
     role: str | None = None
     nickname: str | None = None
     permissions: list[str] = []
     require_password_change: bool = False
     is_default: bool = False
+    refresh_in_cookie: bool = False  # True when the refresh token was set as an httpOnly cookie
+
+
+class RefreshRequest(BaseModel):
+    """Body for POST /api/auth/refresh — the opaque refresh token.
+
+    ``refresh_token`` is optional because, when ``REFRESH_TOKEN_IN_COOKIE`` is
+    enabled, the server reads the token from the httpOnly cookie instead of the
+    body (the cookie is sent automatically by the browser).
+    """
+
+    refresh_token: str | None = None
+    device: str | None = None
+
+
+class LogoutRequest(BaseModel):
+    """Body for POST /api/auth/logout — carries the refresh token to revoke."""
+
+    refresh_token: str | None = None
 
 
 class PasswordChangeRequest(BaseModel):
@@ -125,7 +147,18 @@ class AuditItem(BaseModel):
 
 
 class AuditListResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
     logs: list[AuditItem]
+
+
+class AuditClearRequest(BaseModel):
+    """Body for the destructive ``POST /api/admin/audit/clear`` endpoint.
+
+    ``confirm`` must be explicitly ``True`` so the wipe can never be triggered
+    by a stray GET, a CSRF preflight, or an accidental call.
+    """
+
+    confirm: bool = False
 
 
 class AuditLogsResponse(BaseModel):

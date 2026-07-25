@@ -2,27 +2,37 @@
 """Authentication endpoints and HTTP-layer helpers: login, register, logout,
 current_user, RBAC guards.
 
-The business logic (token lifecycle, login brute-force state, login
+The business logic (JWT lifecycle, login brute-force state, login
 orchestration, self-service password/deactivate) lives in
 :mod:`modules.user.services.auth_service` and
 :mod:`modules.user.services.user_service`; this module keeps the FastAPI
 ``Depends``/``Header`` plumbing and the route handlers, which delegate to the
 services. ``authenticate_token`` and ``purge_expired_tokens`` are re-exported
 here so existing imports keep resolving.
+
+ARCH-9/10: blocking DB work runs inside ``run_in_threadpool`` (the sync
+SQLAlchemy engine + psycopg3 driver stay unchanged) so the async event loop is
+never blocked by a DB round-trip; the hot path (access-token verification) is
+fully stateless and never touches the DB. Each request opens its own session
+*within* the threadpool task, so a single ``Session`` is never shared across
+threads — which keeps the sync SQLAlchemy usage correct under concurrency.
 """
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
-from modules.user.config import ADMIN_USERNAME
-from modules.user.database import SessionToken, User, get_db, get_permissions_for_role
+from modules.user.config import ADMIN_USERNAME, JWT_REFRESH_TTL_DAYS, REFRESH_TOKEN_IN_COOKIE
+from modules.user.database import PERMISSIONS, SessionLocal, User, get_permissions_for_role
 from modules.user.models import (
     AuthRequest,
     AuthResponse,
     DeactivateRequest,
+    LogoutRequest,
     PasswordChangeRequest,
     ProfileUpdateRequest,
+    RefreshRequest,
 )
 from modules.user.services import user_service
 from modules.user.services.auth_service import (
@@ -33,12 +43,38 @@ from modules.user.services.auth_service import (
     login_locked as _login_locked,
     login_user,
     purge_expired_tokens,
+    refresh_session,
     register_ip_failure as _register_ip_failure,
     register_login_failure as _register_login_failure,
+    revoke_refresh_token,
 )
 from modules.user.utils import _audit_log, _client_ip
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
+
+# Cookie name for the optional httpOnly refresh token (REFRESH_TOKEN_IN_COOKIE).
+_REFRESH_COOKIE = "fs_refresh"
+
+
+def _cookie_secure(request: Request | None) -> bool:
+    """Only mark the refresh cookie Secure when served over HTTPS."""
+    return bool(request and getattr(request, "url", None) and request.url.scheme == "https")
+
+
+def _set_refresh_cookie(resp, raw: str, request: Request | None) -> None:
+    resp.set_cookie(
+        _REFRESH_COOKIE,
+        raw,
+        httponly=True,
+        samesite="strict",
+        secure=_cookie_secure(request),
+        path="/api/auth",
+        max_age=int(JWT_REFRESH_TTL_DAYS) * 86400,
+    )
+
+
+def _clear_refresh_cookie(resp) -> None:
+    resp.delete_cookie(_REFRESH_COOKIE, path="/api/auth")
 
 
 # ---------------------------------------------------------------------------
@@ -103,50 +139,108 @@ def require_permission_allow_anonymous(permission: str):
 # Routes
 # ---------------------------------------------------------------------------
 @router.post("/register", response_model=AuthResponse)
-async def register(
-    body: AuthRequest, db: Session = Depends(get_db), request: Request = None
-):
+async def register(body: AuthRequest, request: Request = None):
     """Register a new user (pending admin approval). Optionally set nickname."""
     ip = _client_ip(request)
-    result = user_service.register_user(db, body.username, body.password, body.nickname, ip)
+
+    def _work():
+        with SessionLocal() as db:
+            return user_service.register_user(db, body.username, body.password, body.nickname, ip)
+
+    result = await run_in_threadpool(_work)
     return AuthResponse(**result)
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(
-    body: AuthRequest, db: Session = Depends(get_db), request: Request = None
-):
-    """Login, mints a fresh independent session token (rejected if pending)."""
+async def login(body: AuthRequest, request: Request = None):
+    """Login: mints a fresh access JWT + a hashed refresh token (rejected if pending)."""
     ip = _client_ip(request)
-    result = login_user(db, body.username, body.password, ip, device=body.nickname or "")
+
+    def _work():
+        with SessionLocal() as db:
+            return login_user(db, body.username, body.password, ip, device=body.nickname or "")
+
+    result = await run_in_threadpool(_work)
+    refresh = result.get("refresh_token")
+    if REFRESH_TOKEN_IN_COOKIE:
+        # Hand the refresh token to the browser as an httpOnly cookie; do NOT
+        # echo it in the JSON body (XSS can't read it). The access token still
+        # lives in localStorage and is sent as a Bearer header.
+        out = dict(result)
+        out["refresh_in_cookie"] = True
+        out["refresh_token"] = None
+        resp = JSONResponse(out)
+        _set_refresh_cookie(resp, refresh, request)
+        return resp
+    return AuthResponse(**result)
+
+
+@router.post("/refresh", response_model=AuthResponse)
+async def refresh(body: RefreshRequest, request: Request = None):
+    """Exchange a still-valid refresh token for a new access token (with rotation)."""
+    ip = _client_ip(request)
+    raw = body.refresh_token
+    if REFRESH_TOKEN_IN_COOKIE:
+        # Cookie takes precedence when present (the browser sends it automatically).
+        raw = (request.cookies.get(_REFRESH_COOKIE) if request else None) or raw
+
+    def _work():
+        with SessionLocal() as db:
+            return refresh_session(db, raw, device=body.device or "")
+
+    try:
+        result = await run_in_threadpool(_work)
+    except HTTPException as e:
+        if REFRESH_TOKEN_IN_COOKIE:
+            resp = JSONResponse({"ok": False, "message": e.detail}, status_code=e.status_code)
+            _clear_refresh_cookie(resp)
+            return resp
+        raise
+
+    if REFRESH_TOKEN_IN_COOKIE:
+        out = dict(result)
+        out["refresh_in_cookie"] = True
+        out["refresh_token"] = None
+        resp = JSONResponse(out)
+        _set_refresh_cookie(resp, result["refresh_token"], request)
+        return resp
     return AuthResponse(**result)
 
 
 @router.post("/logout")
 async def logout(
     authorization: str = Header(default=""),
-    user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    body: LogoutRequest | None = None,
     request: Request = None,
 ):
-    """Invalidate the current session token (does not affect other sessions)."""
+    """Invalidate the current refresh token so the session cannot be renewed.
+
+    The access JWT is stateless and expires on its own (ARCH-9 trade-off); we
+    revoke the refresh token here so a stolen/leaked refresh token is dead and
+    the client is forced to re-authenticate after the access token lapses.
+    """
+    user = get_current_user(authorization)
     if not user:
         raise HTTPException(401, "Authentication required")
-    token = authorization[7:].strip() if authorization.startswith("Bearer ") else None
-    if not token:
-        raise HTTPException(401, "Authentication required")
-    db.execute(delete(SessionToken).where(SessionToken.token == token))
-    db.commit()
+    refresh = body.refresh_token if body else None
+    if REFRESH_TOKEN_IN_COOKIE:
+        refresh = refresh or (request.cookies.get(_REFRESH_COOKIE) if request else None)
+    if refresh:
+
+        def _work():
+            with SessionLocal() as db:
+                revoke_refresh_token(db, refresh)
+
+        await run_in_threadpool(_work)
     _audit_log("logout", user["username"], user["username"], _client_ip(request))
-    return {"ok": True, "message": "Logged out"}
+    resp = JSONResponse({"ok": True, "message": "Logged out"})
+    if REFRESH_TOKEN_IN_COOKIE:
+        _clear_refresh_cookie(resp)
+    return resp
 
 
 @router.get("/me")
-async def me(
-    authorization: str = Header(default=""),
-    db: Session = Depends(get_db),
-    request: Request = None,
-):
+async def me(authorization: str = Header(default=""), request: Request = None):
     """Return the current user's profile and effective permissions.
 
     Also refreshes ``last_login_ip`` from the current request so the profile and
@@ -155,70 +249,85 @@ async def me(
     user = get_current_user(authorization)
     if not user:
         raise HTTPException(401, "Authentication required")
-
-    shown_ip = user.get("last_login_ip", "") or ""
     ip = _client_ip(request)
-    if ip:
-        try:
-            target = db.execute(
-                select(User).where(User.id == user["id"])
-            ).scalar_one_or_none()
+
+    def _work():
+        with SessionLocal() as db:
+            shown_ip = user.get("last_login_ip", "") or ""
+            target = db.execute(select(User).where(User.id == user["id"])).scalar_one_or_none()
             if target is not None:
-                if target.last_login_ip != ip:
+                if ip and target.last_login_ip != ip:
                     target.last_login_ip = ip
                     db.commit()
                 shown_ip = target.last_login_ip
-        except Exception:
-            db.rollback()
+            # Prefer the LIVE DB row over the JWT claims so a nickname / role /
+            # status change is reflected immediately (claims only refresh on the
+            # next login / refresh). The claims are the fallback if the row is
+            # somehow missing.
+            live_nick = target.nickname if target is not None else user["nickname"]
+            live_role = target.role if target is not None else user["role"]
+            live_status = target.status if target is not None else user["status"]
+            perms = sorted(get_permissions_for_role(user["role"]))
+            return {
+                "ok": True,
+                "username": user["username"],
+                "nickname": live_nick,
+                "role": live_role,
+                "status": live_status,
+                "is_default": bool(user.get("is_default", False)),
+                "admin_username": ADMIN_USERNAME,
+                "last_login_ip": shown_ip or "",
+                "permissions": perms,
+                "permission_names": [PERMISSIONS.get(p, p) for p in perms],
+            }
 
-    return {
-        "ok": True,
-        "username": user["username"],
-        "nickname": user["nickname"],
-        "role": user["role"],
-        "status": user["status"],
-        "is_default": bool(user.get("is_default", False)),
-        "admin_username": ADMIN_USERNAME,
-        "last_login_ip": shown_ip or "",
-        "permissions": sorted(get_permissions_for_role(user["role"])),
-    }
+    return await run_in_threadpool(_work)
 
 
 @router.put("/me/password", response_model=AuthResponse)
 async def change_my_password(
     body: PasswordChangeRequest,
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    authorization: str = Header(default=""),
     request: Request = None,
 ):
     """Change the caller's own password. Requires the current password; invalidates all sessions."""
+    user = get_current_user(authorization)
     if not user:
         raise HTTPException(401, "Authentication required")
     ip = _client_ip(request)
-    result = user_service.change_password(db, user["id"], body.old_password, body.new_password, ip)
+
+    def _work():
+        with SessionLocal() as db:
+            return user_service.change_password(db, user["id"], body.old_password, body.new_password, ip)
+
+    result = await run_in_threadpool(_work)
     return AuthResponse(**result)
 
 
 @router.post("/me/deactivate", response_model=AuthResponse)
 async def deactivate_my_account(
     body: DeactivateRequest | None = None,
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    authorization: str = Header(default=""),
     request: Request = None,
 ):
     """Deactivate (注销) the caller's own account. Default admin is protected."""
+    user = get_current_user(authorization)
     if not user:
         raise HTTPException(401, "Authentication required")
     ip = _client_ip(request)
-    result = user_service.deactivate_user(db, user["id"], ip)
+
+    def _work():
+        with SessionLocal() as db:
+            return user_service.deactivate_user(db, user["id"], ip)
+
+    result = await run_in_threadpool(_work)
     return AuthResponse(**result)
 
 
 @router.put("/me")
 async def update_my_profile(
     body: ProfileUpdateRequest,
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    authorization: str = Header(default=""),
     request: Request = None,
 ):
     """Update the caller's own profile (nickname, optional password change).
@@ -226,10 +335,16 @@ async def update_my_profile(
     Any authenticated user may use this — it only touches the caller's own
     row, never other accounts. Changing the password invalidates all sessions.
     """
+    user = get_current_user(authorization)
     if not user:
         raise HTTPException(401, "Authentication required")
     ip = _client_ip(request)
-    result = user_service.update_own_profile(
-        db, user["id"], body.nickname, body.old_password, body.new_password, ip
-    )
+
+    def _work():
+        with SessionLocal() as db:
+            return user_service.update_own_profile(
+                db, user["id"], body.nickname, body.old_password, body.new_password, ip
+            )
+
+    result = await run_in_threadpool(_work)
     return result

@@ -6,10 +6,10 @@ import mimetypes
 import os
 import shutil
 import tempfile
+import threading
 import uuid
 import zipfile
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -34,7 +34,7 @@ from modules.user.database import File as FileModel
 from modules.user.database import User, get_db, get_permissions_for_role, orm_to_dict
 from modules.user.models import FileListResponse, PathsRequest
 from modules.files.services import file_service
-from modules.user.utils import _audit_log, _categorize, _delete_file, _format_size
+from modules.user.utils import _audit_log, _categorize, _client_ip, _delete_file, _format_size
 
 log = logging.getLogger("uvicorn")
 router = APIRouter(prefix="/api", tags=["Files"])
@@ -83,6 +83,12 @@ async def list_files(
     return {"files": result, "total": total, "page": page, "page_size": page_size}
 
 
+# Serialize the "quota check + insert + commit" DB section of /api/upload so
+# concurrent per-file uploads can't overshoot the per-user quota by racing the
+# committed-total read (P5 race). The disk write itself stays concurrent.
+QUOTA_LOCK = threading.Lock()
+
+
 @router.post("/upload")
 async def upload_file(
     request: Request,
@@ -98,12 +104,17 @@ async def upload_file(
     size = file.size if hasattr(file, "size") and file.size else 0
     file_service.validate_upload(file.filename, size)
 
-    dest, safe_name, file_size = file_service.save_file(file, category)
+    # Disk write is concurrent (cheap I/O); the DB commit + quota/rate
+    # checks are serialized via QUOTA_LOCK so concurrent uploads can't
+    # overshoot the per-user quota by racing the committed-total read (P5).
+    dest, safe_name, file_size, category = file_service.save_file(file, category)
     ip = request.client.host if request.client else ""
-
     try:
-        file_service.insert_file_record(db, safe_name, category, file_size, user["username"], ip)
-        db.commit()
+        with QUOTA_LOCK:
+            file_service._check_rate_limit(user["username"])
+            file_service.check_user_quota(db, user["username"], file_size)
+            file_service.insert_file_record(db, safe_name, category, file_size, user["username"], ip)
+            db.commit()
     except Exception:
         _delete_file(dest)
         raise
@@ -113,49 +124,16 @@ async def upload_file(
     return {
         "ok": True,
         "filename": file.filename,
+        "path": f"{category}/{safe_name}",
         "category": category,
         "size": file_size,
         "size_fmt": _format_size(file_size),
     }
 
 
-@router.post("/upload/multiple")
-async def upload_multiple(
-    request: Request,
-    files: list[UploadFile] = File(...),
-    category: str = Form(default="auto"),
-    db: Session = Depends(get_db),
-    user: dict = Depends(require_permission("file:upload")),
-):
-    """Batch upload multiple files (requires file:upload)."""
-    ip = request.client.host if request.client else ""
-    results = []
-    saved_physical: list[Path] = []
-
-    try:
-        for file in files:
-            cat = category if category not in ("auto", "") else _categorize(file.filename)
-            size = file.size if hasattr(file, "size") and file.size else 0
-            file_service.validate_upload(file.filename, size)
-
-            dest, safe_name, file_size = file_service.save_file(file, cat)
-            saved_physical.append(dest)
-            file_service.insert_file_record(db, safe_name, cat, file_size, user["username"], ip)
-            results.append({
-                "filename": file.filename,
-                "category": cat,
-                "size": file_size,
-                "size_fmt": _format_size(file_size),
-            })
-        db.commit()
-    except Exception:
-        for p in saved_physical:
-            _delete_file(p)
-        raise
-
-    _audit_log("upload_multiple", f"{len(results)} files", user["username"], ip)
-
-    return {"ok": True, "count": len(results), "files": results}
+# NOTE: batch upload is handled client-side via per-file concurrent uploads
+# (see files.html `uploadFiles`). Keeping it here would duplicate the
+# per-user quota / rate-limit / streaming-size guards and is no longer called.
 
 
 @router.get("/download/{file_path:path}")
@@ -164,6 +142,7 @@ async def download_file(
     token: str | None = None,
     authorization: str = Header(default=""),
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
     """Download a file by its stored path."""
     user = get_current_user(authorization) or authenticate_token(token)
@@ -182,7 +161,15 @@ async def download_file(
     row = db.execute(select(FileModel).where(FileModel.filepath == file_path)).scalar_one_or_none()
     original = row.filename if row else full.name
     display_name = original.split("_", 1)[1] if "_" in original else original
-    return FileResponse(full, filename=display_name)
+    # Audit: every successful download is recorded (incl. anonymous guests, who
+    # are attributed to the synthetic "anonymous" user). Closes the
+    # download-untracked gap in the audit trail.
+    _audit_log("download", file_path, user.get("username", "anonymous"), _client_ip(request))
+    return FileResponse(
+        full,
+        filename=display_name,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/preview/{file_path:path}")
@@ -192,7 +179,19 @@ async def preview_file(
     authorization: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
-    """Inline preview of a file (P1-3)."""
+    """Inline preview of a file (P1-3).
+
+    User-supplied HTML / SVG / XML / script content is served with
+    ``Content-Disposition: attachment`` and ``X-Content-Type-Options:
+    nosniff`` so it can never execute inline in the victim's session
+    (stored XSS via preview). Only genuinely safe media types render inline.
+    """
+    # Media types that must NOT be rendered inline (would execute in the
+    # viewer's authenticated session). Served as attachment instead.
+    INLINE_UNSAFE = {
+        "text/html", "application/xhtml+xml", "image/svg+xml",
+        "application/javascript", "text/javascript", "text/xml", "application/xml",
+    }
     user = get_current_user(authorization) or authenticate_token(token)
     if not user:
         if "file:download" in get_permissions_for_role("anonymous"):
@@ -210,11 +209,13 @@ async def preview_file(
     original = row.filename if row else full.name
     display_name = original.split("_", 1)[1] if "_" in original else original
     media_type = mimetypes.guess_type(str(full))[0] or "application/octet-stream"
+    disp = "inline" if media_type not in INLINE_UNSAFE else "attachment"
     return FileResponse(
         full,
         media_type=media_type,
         filename=display_name,
-        content_disposition_type="inline",
+        content_disposition_type=disp,
+        headers={"X-Content-Type-Options": "nosniff"},
     )
 
 

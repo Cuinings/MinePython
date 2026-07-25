@@ -19,16 +19,17 @@ COPY . .
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /app/uploads /app/logs \
     && touch /app/.fernet_key \
-    && chown -R appuser:appuser /app
-USER appuser
+    && chown -R appuser:appuser /app \
+    && chmod +x /entrypoint.sh
 
-# Persist runtime data (uploads + sqlite db + logs + encryption key) via volumes
-# declared in docker-compose.yml. Do NOT bake secrets into the image.
+# The entrypoint runs as ROOT (no USER directive below) so it can chown the
+# bind-mounted host files (./.env, ./.fernet_key) to the non-root runtime
+# user. It then drops privileges via su before launching the app -- that is
+# what makes admin-UI setting changes persist to the mounted .env.
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Health check hits the OpenAPI docs endpoint.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/docs || exit 1
 
 EXPOSE 8000
-
-CMD ["python", "server.py"]

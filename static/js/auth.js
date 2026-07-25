@@ -10,6 +10,12 @@ var authToken = localStorage.getItem('fs_token') || '';
 var authUser = localStorage.getItem('fs_user') || '';
 var authRole = localStorage.getItem('fs_role') || '';
 var authNick = localStorage.getItem('fs_nick') || '';
+// Opaque refresh token (ARCH-9). Used only to renew the access token; never
+// sent as a Bearer credential. Stored separately so the global fetch
+// interceptor can rotate sessions silently on a 401.
+var authRefresh = localStorage.getItem('fs_refresh') || '';
+// Effective permission codes for the current user (refreshed on renew).
+var authPerms = [];
 // Whether the current account is the protected bootstrap/default account.
 // Default accounts cannot be deactivated, so the UI hides that entry for them.
 var authIsDefault = localStorage.getItem('fs_isdef') === '1';
@@ -43,7 +49,7 @@ function showApp() {
     // Hide it only for the truly unauthenticated corner cases.
     // Audit-log entry is for ANY authenticated user (but NOT anonymous guests).
     var homeAuditCard = document.getElementById('homeAuditCard');
-    if (homeAuditCard) homeAuditCard.style.display = (authRole && authRole !== 'anonymous') ? 'block' : 'none';
+    if (homeAuditCard) homeAuditCard.style.display = (authRole && authRole !== 'anonymous') ? '' : 'none';
     if (authRole === 'admin' || authRole === 'reviewer') startPendingPoll();
 }
 
@@ -57,12 +63,13 @@ function goUserCenter(tab) {
 function skipLogin() {
     // Enter as an anonymous (read-only guest) visitor. Clear any stale
     // credentials, mark the anonymous session, and jump straight into the app.
-    authToken = ''; authUser = ''; authNick = ''; authRole = 'anonymous'; authIsDefault = false;
+    authToken = ''; authUser = ''; authNick = ''; authRole = 'anonymous'; authIsDefault = false; authRefresh = ''; authPerms = [];
     localStorage.removeItem('fs_token');
     localStorage.removeItem('fs_user');
     localStorage.removeItem('fs_role');
     localStorage.removeItem('fs_nick');
     localStorage.removeItem('fs_isdef');
+    localStorage.removeItem('fs_refresh');
     localStorage.setItem('fs_anon', '1');
     stopPendingPoll();
     window.location.href = 'index.html';
@@ -102,6 +109,13 @@ async function doLogin() {
             authUser = u;
             authRole = data.role || '';
             authNick = data.nickname || '';
+            if (data.refresh_in_cookie) {
+                // Refresh token lives in an httpOnly cookie (XSS can't read it).
+                authRefresh = ''; localStorage.removeItem('fs_refresh');
+            } else if (data.refresh_token) {
+                authRefresh = data.refresh_token; localStorage.setItem('fs_refresh', authRefresh);
+            }
+            if (data.permissions) authPerms = data.permissions;
             applyAccountFlags(data);
             localStorage.setItem('fs_token', authToken);
             localStorage.setItem('fs_user', authUser);
@@ -146,6 +160,12 @@ async function doRegister() {
             authUser = u;
             authRole = data.role || '';
             authNick = data.nickname || '';
+            if (data.refresh_in_cookie) {
+                authRefresh = ''; localStorage.removeItem('fs_refresh');
+            } else if (data.refresh_token) {
+                authRefresh = data.refresh_token; localStorage.setItem('fs_refresh', authRefresh);
+            }
+            if (data.permissions) authPerms = data.permissions;
             applyAccountFlags(data);
             localStorage.setItem('fs_token', authToken);
             localStorage.setItem('fs_user', authUser);
@@ -218,16 +238,28 @@ async function submitForcePwChange() {
 
 function doLogout() {
     var tkn = authToken;
-    authToken = ''; authUser = ''; authRole = ''; authNick = ''; authIsDefault = false;
+    var rft = authRefresh;
+    authToken = ''; authUser = ''; authRole = ''; authNick = ''; authIsDefault = false; authRefresh = ''; authPerms = [];
     localStorage.removeItem('fs_token');
     localStorage.removeItem('fs_user');
     localStorage.removeItem('fs_role');
     localStorage.removeItem('fs_nick');
     localStorage.removeItem('fs_isdef');
+    localStorage.removeItem('fs_refresh');
     localStorage.removeItem('fs_anon');
     stopPendingPoll();
     if (tkn) {
-        try { fetch('/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + tkn } }); } catch (e) {}
+        // Revoke the refresh token so the session cannot be renewed (ARCH-9).
+        // credentials: 'same-origin' also clears the httpOnly refresh cookie
+        // when REFRESH_TOKEN_IN_COOKIE is enabled.
+        try {
+            fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tkn },
+                credentials: 'same-origin',
+                body: JSON.stringify({ refresh_token: rft || '' })
+            });
+        } catch (e) {}
     }
     showLogin();
 }
@@ -235,12 +267,13 @@ function doLogout() {
 // Called when the server rejects the current token (401). Clears local state
 // and returns to the login screen instead of showing a misleading message.
 function forceLogout(reason) {
-    authToken = ''; authUser = ''; authRole = ''; authNick = ''; authIsDefault = false;
+    authToken = ''; authUser = ''; authRole = ''; authNick = ''; authIsDefault = false; authRefresh = ''; authPerms = [];
     localStorage.removeItem('fs_token');
     localStorage.removeItem('fs_user');
     localStorage.removeItem('fs_role');
     localStorage.removeItem('fs_nick');
     localStorage.removeItem('fs_isdef');
+    localStorage.removeItem('fs_refresh');
     localStorage.removeItem('fs_anon');
     stopPendingPoll();
     showLogin();
@@ -268,3 +301,87 @@ function getTokenParam() {
 function downloadUrl(path) {
     return '/api/download/' + encodeURIComponent(path) + getTokenParam();
 }
+
+// ---------------------------------------------------------------------------
+// Global fetch interceptor (ARCH-9): transparent token refresh.
+// Every page loads this classic script, so patching window.fetch once here
+// covers all API calls app-wide — no per-page refactor needed.
+//
+//   * injects `Authorization: Bearer <access>` on every request that has one,
+//   * on a 401, silently calls /api/auth/refresh ONCE and retries the request
+//     with the new access token (rotation),
+//   * if refresh fails (or there is no refresh token), force-logs the user out.
+// Browser-native requests (<img src>, <a download>) keep using ?token=<access>
+// via getTokenParam() and are NOT intercepted — those simply re-auth on next
+// full page load if the access token has lapsed.
+// ---------------------------------------------------------------------------
+(function () {
+    if (window.__fsFetchPatched) return;
+    window.__fsFetchPatched = true;
+    var _nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+    if (!_nativeFetch) return;  // ancient browser without fetch — leave as-is.
+
+    // Try to swap the expired access token for a fresh pair. Returns the new
+    // access token string, or null on failure. Uses the raw native fetch so we
+    // never recurse into this interceptor.
+    async function _silentRefresh() {
+        // In cookie mode the refresh token is sent automatically as an httpOnly
+        // cookie (credentials: 'same-origin'); in localStorage mode we pass it
+        // in the body. Either way the call renews the access token.
+        var bodyObj = authRefresh ? { refresh_token: authRefresh } : {};
+        try {
+            var r = await _nativeFetch('/api/auth/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(bodyObj)
+            });
+            if (!r.ok) return null;
+            var d = await r.json();
+            if (!d || !d.ok || !d.access_token) return null;
+            authToken = d.access_token;
+            if (d.username) authUser = d.username;
+            if (d.role) authRole = d.role;
+            if (d.nickname) authNick = d.nickname;
+            if (d.permissions) authPerms = d.permissions;
+            if (d.refresh_in_cookie) {
+                authRefresh = ''; localStorage.removeItem('fs_refresh');
+            } else if (d.refresh_token) {
+                authRefresh = d.refresh_token; localStorage.setItem('fs_refresh', authRefresh);
+            }
+            localStorage.setItem('fs_token', authToken);
+            if (d.nickname) localStorage.setItem('fs_nick', d.nickname);
+            return authToken;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    window.fetch = async function (input, init) {
+        init = init || {};
+        // Copy headers from either the provided init or a Request object, so we
+        // never strip headers the caller already set.
+        var src = (init && init.headers) ? init.headers : (input && input.headers);
+        var headers = new Headers(src || {});
+        if (authToken && !headers.has('Authorization')) {
+            headers.set('Authorization', 'Bearer ' + authToken);
+        }
+        init.headers = headers;
+
+        var resp = await _nativeFetch(input, init);
+
+        if (resp.status === 401 && authRefresh) {
+            // Only attempt one silent renewal to avoid refresh storms.
+            var newTok = await _silentRefresh();
+            if (newTok) {
+                headers.set('Authorization', 'Bearer ' + newTok);
+                init.headers = headers;
+                resp = await _nativeFetch(input, init);
+            } else {
+                // Refresh failed — the session is dead; bounce to login.
+                forceLogout();
+            }
+        }
+        return resp;
+    };
+})();

@@ -4,89 +4,381 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="title">MinePython</title>
+    <!-- importmap: keeps the WebUSB (ya-webadb 2.x) dynamic import resolving
+         the same way it did on files.html. Harmless if unused. -->
+    <script type="importmap">
+    {
+      "imports": {
+        "@types/w3c-web-usb": "/static/js/vendor2/_empty.js",
+        "@types/w3c-web-usb/": "/static/js/vendor2/",
+        "@yume-chan/adb": "/static/js/vendor2/@yume-chan/adb/esm/index.js",
+        "@yume-chan/adb/": "/static/js/vendor2/@yume-chan/adb/esm/",
+        "@yume-chan/adb-credential-web": "/static/js/vendor2/@yume-chan/adb-credential-web/esm/index.js",
+        "@yume-chan/adb-credential-web/": "/static/js/vendor2/@yume-chan/adb-credential-web/esm/",
+        "@yume-chan/adb-daemon-webusb": "/static/js/vendor2/@yume-chan/adb-daemon-webusb/esm/index.js",
+        "@yume-chan/adb-daemon-webusb/": "/static/js/vendor2/@yume-chan/adb-daemon-webusb/esm/",
+        "@yume-chan/async": "/static/js/vendor2/@yume-chan/async/esm/index.js",
+        "@yume-chan/async/": "/static/js/vendor2/@yume-chan/async/esm/",
+        "@yume-chan/event": "/static/js/vendor2/@yume-chan/event/esm/index.js",
+        "@yume-chan/event/": "/static/js/vendor2/@yume-chan/event/esm/",
+        "@yume-chan/no-data-view": "/static/js/vendor2/@yume-chan/no-data-view/esm/index.js",
+        "@yume-chan/no-data-view/": "/static/js/vendor2/@yume-chan/no-data-view/esm/",
+        "@yume-chan/stream-extra": "/static/js/vendor2/@yume-chan/stream-extra/esm/index.js",
+        "@yume-chan/stream-extra/": "/static/js/vendor2/@yume-chan/stream-extra/esm/",
+        "@yume-chan/struct": "/static/js/vendor2/@yume-chan/struct/esm/index.js",
+        "@yume-chan/struct/": "/static/js/vendor2/@yume-chan/struct/esm/",
+        "node:child_process": "/static/js/vendor2/_empty.js",
+        "node:fs": "/static/js/vendor2/_empty.js",
+        "node:fs/promises": "/static/js/vendor2/_empty.js"
+      }
+    }
+    </script>
     <link rel="stylesheet" href="/static/common.css">
 </head>
 <body>
 
-<!-- ===================== MAIN APP ===================== -->
+<!-- ===================== MAIN APP (SPA shell) ===================== -->
+<!-- Header + pending-bar are rendered ONCE by shell.js into #appHeader.
+     The active view is cloned from a <template> into #viewRoot. -->
 <div class="app-container" id="appScreen">
-    <div class="app-header">
-        <h1 data-i18n="h1">📁 MinePython</h1>
-        <div class="header-right">
-            <span class="user" id="userDisplay"></span>
-            <button class="ucenter-btn" onclick="goUserCenter()" data-i18n="ucenter">用户中心</button>
-            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
-            <div class="lang-wrapper">
-                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
-                <div class="lang-menu" id="langMenu">
-                    <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
-                    <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
-                    <button class="lang-menu-item" data-lang="ru" onclick="switchToLang('ru')">Русский</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    <div id="appHeader"></div>
+    <main id="viewRoot"></main>
+</div>
 
-    <!-- Pending approval notification (admin only) -->
-    <div class="pending-bar" id="pendingBar">
-        <span class="count" id="pendingCount"></span>
-        <span class="users" id="pendingUsers"></span>
-        <button class="btn-approve" onclick="goUserCenter('usermgmt')" data-i18n="view_approvals">查看审批</button>
-    </div>
-
-    <!-- ===== HOME VIEW (module entries) ===== -->
-    <div id="viewHome">
-        <div class="home-wrap">
-            <div class="home-grid">
-                <div class="home-card" onclick="goFiles()">
-                    <div class="home-icon">📁</div>
-                    <div class="home-title" data-i18n="nav_files">文件管理</div>
-                    <div class="home-desc" data-i18n="home_files_desc">上传、浏览、搜索、下载与管理文件</div>
-                </div>
-                <div class="home-card" id="homeAuditCard" onclick="goAudit()" style="display:none">
-                    <div class="home-icon">🛡️</div>
-                    <div class="home-title" data-i18n="nav_audit">审计日志</div>
-                    <div class="home-desc" data-i18n="home_audit_desc">查看本人操作记录与安全审计（管理员可见全部）</div>
-                </div>
-                <div class="home-card" onclick="goSettings()">
-                    <div class="home-icon">⚙️</div>
-                    <div class="home-title" data-i18n="settings">设置</div>
-                    <div class="home-desc" data-i18n="home_settings_desc">个性化与系统偏好设置</div>
-                </div>
-                <div class="home-card" onclick="goApi()">
-                    <div class="home-icon">🔌</div>
-                    <div class="home-title">API 文档</div>
-                    <div class="home-desc">查看 Swagger 接口文档与在线调试</div>
-                </div>
-            </div>
+<!-- ===== Global modal: Change Password =====
+     Triggered by the shared header (any view), so it must live outside the
+     per-view templates and stay in the DOM at all times. -->
+<div class="modal-overlay" id="changePwModal" data-close="closeChangePwModal">
+    <div class="modal-card">
+        <h2 data-i18n="change_pw_title">修改密码</h2>
+        <div class="error" id="changePwErr"></div>
+        <label data-i18n="old_pw">当前密码</label>
+        <input type="password" id="changePwOld" data-i18n-placeholder="old_pw" placeholder="当前密码">
+        <label data-i18n="new_pw">新密码</label>
+        <input type="password" id="changePwNew" data-i18n-placeholder="new_pw" placeholder="新密码">
+        <label data-i18n="confirm_pw">确认新密码</label>
+        <input type="password" id="changePwConfirm" data-i18n-placeholder="confirm_pw" placeholder="确认新密码">
+        <div class="modal-actions">
+            <button class="btn btn-cancel" onclick="closeChangePwModal()" data-i18n="btn_cancel">取消</button>
+            <button class="btn btn-save" onclick="submitChangePw()" data-i18n="btn_save">保存</button>
         </div>
     </div>
 </div>
 
+<!-- =====================================================================
+     VIEW TEMPLATES — cloned into #viewRoot by shell.js on hash navigation.
+     Markup is extracted verbatim from the legacy *.html pages
+     (home/views/*). Logic lives in static/js/views/<name>.js.
+     The legacy *.html pages remain as deep-link fallbacks (zero regression).
+     ===================================================================== -->
+
+<!-- ===== HOME ===== -->
+<template id="tpl-home">
+    <div id="viewHome">
+        <div class="home-wrap">
+            <div class="home-grid">
+                <div class="home-card" role="button" tabindex="0" onclick="goFiles()">
+                    <div class="home-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+                    <div class="home-title" data-i18n="nav_files">文件管理</div>
+                </div>
+                <div class="home-card" id="homeAuditCard" role="button" tabindex="0" onclick="goAudit()" style="display:none">
+                    <div class="home-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 12 15 16 10"/></svg></div>
+                    <div class="home-title" data-i18n="nav_audit">审计日志</div>
+                </div>
+                <div class="home-card" role="button" tabindex="0" onclick="goSettings()">
+                    <div class="home-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+                    <div class="home-title" data-i18n="settings">设置</div>
+                </div>
+                <div class="home-card" role="button" tabindex="0" onclick="goApi()">
+                    <div class="home-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M9 8V2"/><path d="M15 8a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3h6z"/></svg></div>
+                    <div class="home-title">API 文档</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- ===== FILES ===== -->
+<template id="tpl-files">
+    <!-- FILES VIEW -->
+    <div id="viewFiles" style="display:none">
+        <p class="app-subtitle">
+            <span data-i18n="subtitle_label">分类管理</span> · <a href="/docs" target="_blank">Swagger API</a>
+        </p>
+        <div class="cat-bar" id="catBar"></div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+            <input type="text" id="searchInput" placeholder="搜索文件..." style="flex:1;padding:8px 12px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;outline:none" oninput="onSearchDebounced()">
+        </div>
+        <!-- Upload entry point -->
+        <div class="upload-entry-bar" role="button" tabindex="0" onclick="goUpload()">
+            <div class="icon-circle">⬆️</div>
+            <div class="label" data-i18n="upload_entry">上传文件</div>
+            <div class="arrow">→</div>
+        </div>
+        <div class="section-header">
+            <h2 id="listTitle"></h2>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label style="display:flex;gap:4px;align-items:center;font-size:12px;color:var(--dim);cursor:pointer">
+                    <input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)" title="全选本页" style="width:16px;height:16px;cursor:pointer">
+                    <span data-i18n="select_all">全选</span>
+                </label>
+                <span style="font-size:11px;color:var(--dim)" id="selectCount"></span>
+                <button class="btn btn-xs" onclick="batchDownload()" id="batchDlBtn" style="display:none">批量下载</button>
+                <button class="btn btn-xs" onclick="batchDelete()" id="batchDelBtn" style="display:none;color:var(--danger);border-color:var(--danger)">批量删除</button>
+                <button class="btn btn-xs" onclick="organizeRoot()" data-i18n-title="organize_title" data-i18n="btn_organize">🗂 整理归类</button>
+            </div>
+        </div>
+        <div class="file-list" id="fileList">
+            <div class="empty" data-i18n="loading">加载中...</div>
+        </div>
+        <div id="pagination" style="display:flex;justify-content:center;gap:8px;margin-top:16px"></div>
+    </div>
+
+    <!-- FILE DETAIL VIEW -->
+    <div id="viewDetail" style="display:none">
+        <div class="back-row">
+            <button class="back-btn" onclick="goFiles()" data-i18n="back_files">← 返回文件浏览</button>
+        </div>
+        <div class="detail-card" id="detailContent"></div>
+    </div>
+
+    <!-- UPLOAD VIEW -->
+    <div id="viewUpload" style="display:none">
+        <div class="back-row">
+            <button class="back-btn" onclick="goFiles()" data-i18n="back_files">← 返回文件浏览</button>
+        </div>
+        <div class="cat-bar" id="uploadCatBar"></div>
+        <div class="drop-zone" id="dropZone">
+            <span class="icon">⬆️</span>
+            <h3 data-i18n="upload_title">点击或拖拽文件到此处上传</h3>
+            <p data-i18n="upload_desc">支持任意文件类型，可批量上传</p>
+            <span class="cat-hint" id="uploadHint"></span>
+            <input type="file" id="fileInput" multiple hidden>
+        </div>
+    </div>
+
+    <!-- Modal: File Preview -->
+    <div class="modal-overlay" id="previewModal" data-close="closePreview" onclick="if(event.target===this)closePreview()">
+        <div class="modal-card preview-card">
+            <div class="preview-header">
+                <h2 data-i18n="preview_title">预览</h2>
+                <button class="btn btn-cancel" onclick="closePreview()" title="关闭">✕</button>
+            </div>
+            <div class="preview-body" id="previewBody"></div>
+        </div>
+    </div>
+    <!-- Modal: ADB Install -->
+    <div class="modal-overlay" id="adbModal" data-close="closeAdbModal" onclick="if(event.target===this)closeAdbModal()">
+        <div class="modal-card adb-card">
+            <div class="preview-header">
+                <h2 id="adbModalTitle">ADB 安装</h2>
+                <button class="btn btn-cancel" onclick="closeAdbModal()" title="关闭">✕</button>
+            </div>
+            <div class="adb-body" id="adbModalBody"></div>
+        </div>
+    </div>
+</template>
+
+<!-- ===== USERS (User Center) ===== -->
+<template id="tpl-users">
+    <!-- User Center tab bar (permission-scoped) -->
+    <div class="uc-tabs" id="ucTabs">
+        <button class="uc-tab active" id="tabUserInfo" onclick="switchUCTab('userinfo')" data-i18n="user_info">用户信息</button>
+        <button class="uc-tab" id="tabUserMgmt" onclick="switchUCTab('usermgmt')" style="display:none" data-i18n="user_mgmt">用户管理</button>
+    </div>
+
+    <!-- Panel: 用户信息 (all authenticated users) -->
+    <div class="uc-panel active" id="panelUserInfo">
+        <div class="uc-info-card" id="ucInfoCard">
+            <div class="empty" data-i18n="loading">加载中...</div>
+        </div>
+    </div>
+
+    <!-- Panel: 用户管理 (admin / reviewer only) -->
+    <div class="uc-panel" id="panelUserMgmt">
+        <div id="panelUsers">
+            <div class="section-header">
+                <h2 data-i18n="user_mgmt">用户管理</h2>
+                <button class="btn btn-xs" id="addUserBtn" onclick="openAddUserModal()" style="color:var(--accent);border-color:var(--accent)" data-i18n="btn_add_user">+ 添加用户</button>
+            </div>
+            <div id="userBatchBar" style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+                <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim);cursor:pointer">
+                    <input type="checkbox" id="selectAllUsers" onclick="toggleSelectAllUsers(this)" style="width:16px;height:16px;cursor:pointer">
+                    <span data-i18n="select_all">全选</span>
+                </label>
+                <button class="btn btn-xs" onclick="batchUserAction('approve')" id="userBatchApprove" style="display:none;color:var(--green);border-color:var(--green)" data-i18n="batch_approve">批量通过</button>
+                <button class="btn btn-xs" onclick="batchUserAction('reject')" id="userBatchReject" style="display:none;color:var(--danger)" data-i18n="batch_reject">批量拒绝</button>
+                <button class="btn btn-xs btn-danger" onclick="batchUserAction('delete')" id="userBatchDel" style="display:none" data-i18n="batch_delete">批量删除</button>
+                <span id="userSelectCount" style="font-size:11px;color:var(--dim)"></span>
+            </div>
+            <div class="file-list" id="adminUserList">
+                <div class="empty" data-i18n="loading">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit own profile -->
+    <div class="modal-overlay" id="profileModal" data-close="closeProfileModal">
+        <div class="modal-card">
+            <h2 data-i18n="edit_profile">修改资料</h2>
+            <div class="error" id="profileErr"></div>
+            <label data-i18n="ui_nickname">昵称</label>
+            <input type="text" id="profileNick" data-i18n-placeholder="profile_nick_ph" placeholder="昵称" maxlength="40">
+            <label data-i18n="old_pw">当前密码</label>
+            <input type="password" id="profileOldPw" data-i18n-placeholder="old_pw" placeholder="当前密码">
+            <label data-i18n="new_pw">新密码</label>
+            <input type="password" id="profileNewPw" data-i18n-placeholder="new_pw" placeholder="新密码">
+            <label data-i18n="confirm_pw">确认新密码</label>
+            <input type="password" id="profileCfmPw" data-i18n-placeholder="confirm_pw" placeholder="确认新密码">
+            <div class="modal-actions">
+                <button class="btn btn-cancel" onclick="closeProfileModal()" data-i18n="btn_cancel">取消</button>
+                <button class="btn btn-save" onclick="saveProfile()" data-i18n="btn_save">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add / Edit User (admin) -->
+    <div class="modal-overlay" id="userModal" data-close="closeUserModal">
+        <div class="modal-card">
+            <h2 id="userModalTitle">添加用户</h2>
+            <label data-i18n="username_ph">用户名</label>
+            <input type="text" id="modalUser" data-i18n-placeholder="username_ph" placeholder="用户名">
+            <label data-i18n="password_ph">密码</label>
+            <div style="position:relative;display:flex;align-items:center">
+                <input type="text" id="modalPass" data-i18n-placeholder="password_ph" placeholder="密码" style="flex:1;padding-right:34px">
+                <button type="button" class="eye-btn" onclick="toggleModalPass()" title="显示/隐藏" style="position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:15px">👁</button>
+            </div>
+            <label data-i18n="nickname_label">昵称</label>
+            <input type="text" id="modalNick" data-i18n-placeholder="nickname_label" placeholder="昵称">
+            <label data-i18n="role_label">角色</label>
+            <select id="modalRole">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+            </select>
+            <label data-i18n="status_label">状态</label>
+            <select id="modalStatus">
+                <option value="active">active</option>
+                <option value="pending">pending</option>
+            </select>
+            <div class="modal-actions">
+                <button class="btn btn-cancel" onclick="closeUserModal()" data-i18n="btn_cancel">取消</button>
+                <button class="btn btn-save" onclick="saveUser()" id="modalSaveBtn" data-i18n="btn_save">保存</button>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- ===== AUDIT ===== -->
+<template id="tpl-audit">
+    <div id="viewAudit">
+
+        <div class="section-header">
+            <h2 data-i18n="audit_title">审计日志</h2>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <!-- Unified scope + user filter: one dropdown for admins/reviewers
+                     (仅本人 / 全部用户 / 具体用户). Regular users never see it. -->
+                <select id="userScope" class="audit-filter-input" style="display:none" onchange="loadAuditPublic()">
+                    <option value="self" data-i18n="audit_scope_self">仅本人</option>
+                    <option value="" data-i18n="audit_scope_all">全部用户</option>
+                </select>
+                <select id="auditAction" class="audit-filter-input" onchange="loadAuditPublic()">
+                    <option value="">全部动作</option>
+                    <option value="login">登录</option>
+                    <option value="logout">登出</option>
+                    <option value="register">注册</option>
+                    <option value="upload">上传</option>
+                    <option value="upload_multiple">批量上传</option>
+                    <option value="download">下载</option>
+                    <option value="approve">通过</option>
+                    <option value="reject">拒绝</option>
+                    <option value="delete">删除</option>
+                    <option value="delete_user">删除用户</option>
+                    <option value="create_user">创建用户</option>
+                    <option value="update_user">更新用户</option>
+                    <option value="password_change">修改密码</option>
+                    <option value="deactivate">注销</option>
+                </select>
+                <input id="auditSearch" class="audit-filter-input" data-i18n-placeholder="audit_search_ph" placeholder="搜索目标…" onkeydown="if(event.key==='Enter')loadAuditPublic()">
+                <button class="btn btn-xs" onclick="loadAuditPublic()" style="color:var(--accent);border-color:var(--accent)" data-i18n="audit_refresh">刷新</button>
+                <button class="btn btn-xs" onclick="exportAuditCSV()" data-i18n="audit_export">导出CSV</button>
+                <button id="btnClearAudit" class="btn btn-xs" onclick="clearAudit()" style="display:none;color:#e5484d;border-color:#e5484d" title="清空全部审计日志（仅管理员）">清空审计日志</button>
+            </div>
+        </div>
+
+        <!-- Self-only notice for regular users -->
+        <div id="selfNote" class="self-note" style="display:none">
+            🔒 <span data-i18n="audit_self_note">仅显示本人操作记录（管理员可查看全部）</span>
+        </div>
+
+        <div class="file-list" id="auditList">
+            <div class="center-loading"><div class="spinner"></div></div>
+        </div>
+    </div>
+</template>
+
+<!-- ===== SETTINGS ===== -->
+<template id="tpl-settings">
+    <div id="viewSettings">
+        <h2 class="section-header" data-i18n="settings">设置</h2>
+
+        <!-- Site settings panel (admin only) -->
+        <div id="panelSite" style="display:none;margin-bottom:18px">
+            <div class="section-header">
+                <h3 data-i18n="site_settings">站点设置</h3>
+            </div>
+            <div class="file-card" style="padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <label data-i18n="site_name" style="font-size:13px;color:var(--dim);white-space:nowrap">站点名称</label>
+                <input type="text" id="siteNameInput" maxlength="40" data-i18n-placeholder="site_name_ph" style="flex:1;min-width:200px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text)">
+                <button class="btn btn-save" id="saveSiteBtn" onclick="saveSiteName()" data-i18n="site_save">保存</button>
+            </div>
+            <div id="siteSavedHint" style="font-size:12px;color:var(--dim);margin-top:6px;display:none"></div>
+            <div class="file-card" style="padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+                <label style="font-size:13px;color:var(--dim);white-space:nowrap">最大上传大小 (MB)</label>
+                <input type="number" id="maxUploadMbInput" min="1" max="1048576" style="width:140px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text)">
+                <button class="btn btn-save" id="saveUploadBtn" onclick="saveUploadLimit()">保存</button>
+                <span id="uploadLimitHint" style="font-size:12px;color:var(--dim);display:none"></span>
+                <div style="font-size:11px;color:var(--dim);width:100%">提示：调大超过 500MB 且使用了 nginx 反代时，需用 envsubst 重新渲染 nginx.conf（见文件顶部命令）并 nginx -s reload，否则反代会拒绝（413）。应用层已即时生效。</div>
+            </div>
+            <div class="file-card" style="padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+                <label style="font-size:13px;color:var(--dim);white-space:nowrap">每用户容量配额 (MB)</label>
+                <input type="number" id="maxUploadQuotaMbInput" min="0" style="width:140px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text)">
+                <button class="btn btn-save" id="saveQuotaBtn" onclick="saveQuota()">保存</button>
+                <span id="quotaHint" style="font-size:12px;color:var(--dim);display:none"></span>
+                <div style="font-size:11px;color:var(--dim);width:100%">提示：0 = 不设上限（默认关闭）。开启后，每个用户累计已存文件总大小不得超过此值。</div>
+            </div>
+            <div class="file-card" style="padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+                <label style="font-size:13px;color:var(--dim);white-space:nowrap">上传频控 (次/窗口)</label>
+                <input type="number" id="uploadRateInput" min="0" style="width:140px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text)">
+                <button class="btn btn-save" id="saveRateBtn" onclick="saveRateLimit()">保存</button>
+                <span id="rateHint" style="font-size:12px;color:var(--dim);display:none"></span>
+                <div style="font-size:11px;color:var(--dim);width:100%">提示：0 = 关闭频控（默认）。开启后，同一用户在每个时间窗口内最多发起该次数的上传（窗口长度见服务端配置）。</div>
+            </div>
+        </div>
+
+        <!-- Non-admin fallback / placeholder -->
+        <div id="noSettingsMsg" class="uc-settings-empty" data-i18n="settings_blank">（设置模块开发中，敬请期待）</div>
+    </div>
+</template>
+
+<!-- ===================== SCRIPTS ===================== -->
 <script src="/static/js/util.js"></script>
 <script src="/static/js/i18n.js"></script>
 <script src="/static/js/theme.js"></script>
 <script src="/static/js/toast.js"></script>
 <script src="/static/js/auth.js"></script>
 <script src="/static/js/pending.js"></script>
+<script src="/static/js/modal.js"></script>
 <script src="/static/js/init.js"></script>
+<script src="/static/js/shell.js"></script>
+<script src="/static/js/views/home.js"></script>
+<script src="/static/js/views/files.js"></script>
+<script src="/static/js/views/users.js"></script>
+<script src="/static/js/views/audit.js"></script>
+<script src="/static/js/views/settings.js"></script>
 <script>
-    // ===== Home page: module navigation =====
-    function goHome() {
-        ['viewFiles','viewUpload','viewDetail','viewAdmin'].forEach(function(id) {
-            var el = document.getElementById(id); if (el) el.style.display = 'none';
-        });
-        var vh = document.getElementById('viewHome'); if (vh) vh.style.display = 'block';
-    }
-    function goFiles() { window.location.href = 'files.html'; }
-    function goUserCenter(tab) { window.location.href = 'users.html' + (tab ? ('?tab=' + tab) : ''); }
-    function goAudit() { window.location.href = 'audit.html'; }
-    function goSettings() { window.location.href = 'settings.html'; }
-    function goApi() { window.location.href = '/api'; }
-
-    // After login / on load, show the home module grid.
-    function onAppReady() { goHome(); }
-
+    // initApp() establishes the session, then calls onAppReady (= startRouter
+    // set by shell.js), which renders the shared header and mounts the view
+    // for the current location.hash. Must run AFTER every view module is loaded.
     initApp();
 </script>
 </body>

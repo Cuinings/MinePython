@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Header
 from sqlalchemy import func, select
 
 from modules.user.auth import get_permissions_for_role, require_permission
-from modules.user.database import AuditLog, get_db, orm_to_dict
+from modules.user.database import AuditLog, get_db, orm_to_dict, audit_logs_to_dicts
 
 router = APIRouter(prefix="/api/audit", tags=["Audit"])
 
@@ -70,10 +70,11 @@ async def audit_logs(
     ).scalars().all()
 
     return {
-        "logs": [orm_to_dict(r) for r in rows],
+        "logs": audit_logs_to_dicts(db, rows),
         "total": total,
         "page": page,
         "page_size": page_size,
         "scope": scope,
         "can_view_all": can_view_all,
+        "can_purge": "audit:purge" in perms,
     }

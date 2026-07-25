@@ -69,8 +69,17 @@ def _write_env_key(key: str, value: str) -> bool:
     in-memory update only).
     """
     env_path = Path(__file__).parent.parent.parent / ".env"
-    if not env_path.exists():
+    # If a bind-mounted .env is actually a directory (Docker auto-creates the
+    # mount point as a dir when the host file is absent), we cannot write to it.
+    if env_path.is_dir():
         return False
+    # Create the file on first write so admin-UI edits persist even when no
+    # .env shipped initially (otherwise the in-memory change is lost on restart).
+    if not env_path.exists():
+        try:
+            env_path.write_text("", encoding="utf-8")
+        except OSError:
+            return False
     needs_quote = value != value.strip() or any(
         ch in value for ch in ' #"\'\\$`'
     )
@@ -98,11 +107,11 @@ def _write_env_key(key: str, value: str) -> bool:
         return False
 
 
-def set_app_name(name: str) -> str:
+def set_app_name(name: str) -> tuple[str, bool]:
     """Update the site display name at runtime and persist it.
 
     Used by the admin "site settings" UI. Raises ``ValueError`` on invalid
-    input. Returns the normalized name.
+    input. Returns ``(normalized_name, persisted_ok)``.
     """
     global APP_NAME
     name = (name or "").strip()
@@ -111,14 +120,171 @@ def set_app_name(name: str) -> str:
     if len(name) > 40:
         raise ValueError("Site name too long (max 40 characters)")
     APP_NAME = name
-    _write_env_key("APP_NAME", name)
-    return APP_NAME
+    persisted = _write_env_key("APP_NAME", name)
+    return APP_NAME, persisted
+
+
+# ---------------------------------------------------------------------------
+# Runtime max-upload-size editing (admin UI -> /api/admin/upload-limit).
+# Same pattern as set_app_name(): update the in-memory values immediately
+# (so the running upload guard picks up the change without a restart) and,
+# when a .env exists, persist MAX_UPLOAD_SIZE_MB so a restart keeps the
+# admin's choice. file_service.py reads ``config.MAX_UPLOAD_SIZE_BYTES`` on
+# every upload, so the new cap takes effect on the very next request.
+# ---------------------------------------------------------------------------
+def get_max_upload_size_mb() -> int:
+    """Current per-file upload size cap in MB (admin-configurable)."""
+    return MAX_UPLOAD_SIZE_MB
+
+
+def set_max_upload_size_mb(mb) -> tuple[int, bool]:
+    """Update the per-file upload cap at runtime and persist it.
+
+    Used by the admin settings UI. Raises ``ValueError`` on invalid input.
+    Returns ``(normalized_mb, persisted_ok)``.
+    """
+    global MAX_UPLOAD_SIZE_MB, MAX_UPLOAD_SIZE_BYTES
+    try:
+        mb = int(mb)
+    except (TypeError, ValueError):
+        raise ValueError("Upload limit must be a number (MB)")
+    if mb < 1:
+        raise ValueError("Upload limit must be at least 1 MB")
+    if mb > 1024 * 1024:  # 1 TB ceiling guards against typos
+        raise ValueError("Upload limit too large (max 1048576 MB)")
+    MAX_UPLOAD_SIZE_MB = mb
+    MAX_UPLOAD_SIZE_BYTES = mb * 1024 * 1024
+    persisted = _write_env_key("MAX_UPLOAD_SIZE_MB", str(mb))
+    return MAX_UPLOAD_SIZE_MB, persisted
+
+
+# ---------------------------------------------------------------------------
+# Runtime per-user quota (MB) and upload rate-limit editing (admin UI).
+# Same .env-backed pattern as set_max_upload_size_mb(); both persist so a
+# restart keeps the admin's choice. file_service.py reads
+# ``config.MAX_USER_UPLOAD_BYTES`` / ``config.UPLOAD_RATE_LIMIT`` on every
+# upload, so changes take effect on the very next request.
+# ---------------------------------------------------------------------------
+def get_max_user_upload_mb() -> int:
+    """Current per-user total storage quota in MB (admin-configurable, 0=off)."""
+    return MAX_USER_UPLOAD_BYTES // (1024 * 1024)
+
+
+def set_max_user_upload_mb(mb) -> tuple[int, bool]:
+    """Update the per-user quota at runtime and persist it.
+
+    ``mb`` is in MB; 0 disables the quota. Raises ``ValueError`` on
+    invalid input. Returns ``(normalized_mb, persisted_ok)``.
+    """
+    global MAX_USER_UPLOAD_BYTES
+    try:
+        mb = int(mb)
+    except (TypeError, ValueError):
+        raise ValueError("Quota must be a number (MB)")
+    if mb < 0:
+        raise ValueError("Quota cannot be negative (use 0 to disable)")
+    MAX_USER_UPLOAD_BYTES = mb * 1024 * 1024
+    persisted = _write_env_key("MAX_USER_UPLOAD_BYTES", str(mb))
+    return mb, persisted
+
+
+def get_upload_rate_limit() -> int:
+    """Current uploads-per-window cap (admin-configurable, 0=off)."""
+    return UPLOAD_RATE_LIMIT
+
+
+def set_upload_rate_limit(n) -> tuple[int, bool]:
+    """Update the upload rate limit at runtime and persist it.
+
+    ``n`` = max uploads per UPLOAD_RATE_WINDOW_SECONDS. 0 disables the
+    limiter. Raises ``ValueError`` on invalid input. Returns
+    ``(value, persisted_ok)``.
+    """
+    global UPLOAD_RATE_LIMIT
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        raise ValueError("Rate limit must be a number")
+    if n < 0:
+        raise ValueError("Rate limit cannot be negative (use 0 to disable)")
+    UPLOAD_RATE_LIMIT = n
+    persisted = _write_env_key("UPLOAD_RATE_LIMIT", str(n))
+    return n, persisted
+
 
 # ---------- Paths ----------
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(Path(__file__).parent.parent.parent / "uploads")))
 UPLOAD_DIR.mkdir(exist_ok=True)
 DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent.parent.parent / "server.db")))
 DEFAULT_CATEGORY = "其他"
+
+# ---------- Database (ARCH-10: Postgres / horizontal scaling) ----------
+# DATABASE_URL is the single switch that moves the whole app off SQLite onto a
+# shared database (Postgres) so multiple instances can run behind a load
+# balancer. When UNSET (the default), the app keeps using the local SQLite file
+# at DB_PATH — so local dev, CI and existing single-node deployments are wholly
+# unaffected. To scale out, point every instance at the same Postgres:
+#     DATABASE_URL=postgresql://user:pass@db-host:5432/minepython
+# A bare ``postgresql://`` / ``postgres://`` URL is normalized to the psycopg3
+# (v3) sync driver in database.py; pass ``postgresql+psycopg://`` explicitly to
+# be unambiguous. SQLite-only behaviour (WAL journaling, StaticPool, the
+# check_same_thread arg) is auto-disabled when a non-sqlite URL is used.
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+
+# ---------- JWT (ARCH-9: stateless access + refresh tokens) ----------
+# The hot path (every authenticated request) verifies a short-lived access JWT
+# by SIGNATURE ONLY — no database round-trip — which is what makes the service
+# stateless and horizontally scalable. Refresh tokens are the ONLY server-side
+# state (hashed rows in the ``refresh_tokens`` table) and are consulted only on
+# the infrequent /api/auth/refresh call, so logout / password-change can still
+# revoke sessions immediately.
+#
+# JWT_SECRET MUST be identical on every instance (they all verify each other's
+# tokens). Set it explicitly in production. When unset we load — or generate
+# once and persist — a local ``.jwt_secret`` file so single-node dev/CI just
+# works and tokens survive a restart. A generated key is NOT shared across
+# hosts, so a multi-instance deployment must set JWT_SECRET via the environment.
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256").strip() or "HS256"
+JWT_ISSUER = os.getenv("JWT_ISSUER", "minepython").strip() or "minepython"
+# Access token lifetime (minutes). Keep this short — it cannot be revoked before
+# it expires (that's the trade-off for statelessness).
+JWT_ACCESS_TTL_MINUTES = int(os.getenv("JWT_ACCESS_TTL_MINUTES", "30"))
+# Refresh token lifetime (days). This is the effective "stay logged in" window.
+JWT_REFRESH_TTL_DAYS = int(os.getenv("JWT_REFRESH_TTL_DAYS", "7"))
+
+_JWT_SECRET_PATH = Path(__file__).parent.parent.parent / ".jwt_secret"
+
+
+def _load_jwt_secret() -> str:
+    """Resolve the HMAC signing secret for JWTs (env > file > generate).
+
+    Precedence:
+    1. ``JWT_SECRET`` env var — the ONLY correct option for multi-instance
+       deployments (all nodes must share it).
+    2. A persisted ``.jwt_secret`` file next to the project root — auto-created
+       on first run so single-node dev/CI works and tokens survive restarts.
+    """
+    env_secret = os.getenv("JWT_SECRET", "").strip()
+    if env_secret:
+        return env_secret
+    try:
+        if _JWT_SECRET_PATH.exists():
+            existing = _JWT_SECRET_PATH.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+        import secrets as _secrets
+        generated = _secrets.token_hex(32)
+        _JWT_SECRET_PATH.write_text(generated, encoding="utf-8")
+        return generated
+    except OSError:
+        # Last-resort ephemeral secret (tokens won't survive a restart). Only
+        # hit when the filesystem is read-only; env var is the fix.
+        import secrets as _secrets
+        return _secrets.token_hex(32)
+
+
+JWT_SECRET = _load_jwt_secret()
 
 # ---------- Server (combined entry) ----------
 HOST = os.getenv("HOST", "0.0.0.0")
@@ -132,11 +298,25 @@ AUDIT_MODULE_PORT = int(os.getenv("AUDIT_MODULE_PORT", "8003"))
 APIDOCS_MODULE_PORT = int(os.getenv("APIDOCS_MODULE_PORT", "8004"))
 
 # ---------- Debug / safe-by-default ----------
-# When False (production), the interactive API docs (/docs, /redoc,
-# /openapi.json) are blocked and the global error handler stops leaking
-# internal exception strings to clients (ARCH-1 / R3). Set APP_DEBUG=true
-# only in trusted development environments.
+# When False (production), the global error handler stops leaking internal
+# exception strings to clients (ARCH-1 / R3). Set APP_DEBUG=true only in
+# trusted development environments.
+#
+# NOTE: whether the interactive API docs (/docs, /redoc, /openapi.json) are
+# exposed is controlled by API_DOCS_ENABLED below — deliberately DECOUPLED
+# from DEBUG, so you can keep DEBUG=false (no exception leakage) while still
+# serving the docs by setting API_DOCS_ENABLED=true.
 DEBUG = os.getenv("APP_DEBUG", "false").strip().lower() in ("1", "true", "yes", "on")
+
+# ---------- API docs exposure (independent of DEBUG) ----------
+# Decouples "expose interactive API docs" from "leak exceptions" (DEBUG).
+# Defaults to following DEBUG (safe-by-default: docs hidden when DEBUG=false),
+# but can be forced on with API_DOCS_ENABLED=true even in production/non-DEBUG
+# deployments that still want the Swagger/ReDoc portals reachable.
+_api_docs_env = os.getenv("API_DOCS_ENABLED", "").strip().lower()
+API_DOCS_ENABLED = (
+    _api_docs_env in ("1", "true", "yes", "on") if _api_docs_env else DEBUG
+)
 
 # ---------- Orphan cleanup sweep (P1-6) ----------
 # Background scan interval (seconds) for disk/DB orphans. 0 disables the sweep
@@ -153,12 +333,30 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 ADMIN_NICKNAME = os.getenv("ADMIN_NICKNAME", "管理员")
 
-# ---------- Auth / session tokens ----------
-# Each login mints an independent session token (multi-session, no overwrite)
-# that expires after this many hours. 0/negative disables expiry.
-TOKEN_TTL_HOURS = int(os.getenv("TOKEN_TTL_HOURS", "168"))  # 7 days
-# Background sweep interval (seconds) for purging expired token rows (ARCH-3).
-TOKEN_CLEANUP_INTERVAL_SECONDS = int(os.getenv("TOKEN_CLEANUP_INTERVAL_SECONDS", "3600"))
+# ---------- Auth / session tokens (ARCH-9 / ARCH-10) ----------
+# Access tokens are stateless JWTs (verified by signature, no DB). Refresh
+# tokens are opaque strings whose SHA-256 hash lives in the ``refresh_tokens``
+# table; the sweep below deletes expired rows so the table stays small.
+# 0 disables the sweep.
+REFRESH_TOKEN_CLEANUP_INTERVAL_SECONDS = int(os.getenv("REFRESH_TOKEN_CLEANUP_INTERVAL_SECONDS", "3600"))
+# Audit-log retention: rows older than this many days are purged by a
+# background sweep. 0 disables retention (keep everything forever).
+AUDIT_LOG_RETENTION_DAYS = int(os.getenv("AUDIT_LOG_RETENTION_DAYS", "90"))
+# Permission cache (in-memory ``_ROLE_PERMS``) is reloaded from the DB on this
+# interval so role/permission changes propagate across instances (ARCH-10). 0
+# disables the periodic reload (reload only at startup).
+PERMISSION_CACHE_REFRESH_SECONDS = int(os.getenv("PERMISSION_CACHE_REFRESH_SECONDS", "300"))
+# Shared store for the upload rate limiter so it works across instances
+# (ARCH-10). Set to a Redis URL (e.g. ``redis://host:6379/0``) to enable;
+# empty = in-memory single-process limiter (the default for single instances).
+RATE_LIMIT_STORE = os.getenv("RATE_LIMIT_STORE", "").strip()
+# When true, the refresh token is issued as an httpOnly + SameSite cookie
+# (instead of returned in the JSON body), shrinking the XSS blast radius.
+# The access token stays in localStorage. Defaults to off so local http dev
+# keeps working; enable behind HTTPS in production.
+REFRESH_TOKEN_IN_COOKIE = os.getenv("REFRESH_TOKEN_IN_COOKIE", "false").strip().lower() in (
+    "1", "true", "yes", "on"
+)
 
 # ---------- Login brute-force / rate limiting (ARCH-2) ----------
 # Per-username lock: after MAX_LOGIN_FAILS consecutive failures the account is
@@ -183,9 +381,30 @@ MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 ALLOWED_EXTENSIONS: set[str] = set(
     e.strip().lower() for e in os.getenv("ALLOWED_EXTENSIONS", "").split(",") if e.strip()
 )
+# Default blocklist of server-side script types that have no legitimate use in a
+# file store and are classic upload-RCE vectors if the uploads dir is ever served
+# by a web server. Note: .apk/.exe/.sh/.bat/.html/.svg/.js/.py are intentionally
+# NOT blocked -- they are first-class content here and are neutralized instead by
+# the no-inline / nosniff handling on preview & download (see modules.files.files).
 BLOCKED_EXTENSIONS: set[str] = set(
-    e.strip().lower() for e in os.getenv("BLOCKED_EXTENSIONS", "").split(",") if e.strip()
+    e.strip().lower() for e in os.getenv(
+        "BLOCKED_EXTENSIONS",
+        ".php,.phtml,.php3,.php4,.php5,.asp,.aspx,.jsp,.jspx,.cgi,.pl",
+    ).split(",") if e.strip()
 )
+
+# ---------- Upload rate limiting & per-user quota (P5, default OFF) ----------
+# In-memory, single-process. Set UPLOAD_RATE_LIMIT > 0 to cap how many uploads
+# a user may start per UPLOAD_RATE_WINDOW_SECONDS. 0 disables the limiter.
+UPLOAD_RATE_LIMIT = int(os.getenv("UPLOAD_RATE_LIMIT", "0"))
+UPLOAD_RATE_WINDOW_SECONDS = int(os.getenv("UPLOAD_RATE_WINDOW_SECONDS", "60"))
+# Per-user total stored size in bytes. 0 (default) disables the quota check.
+MAX_USER_UPLOAD_BYTES = int(os.getenv("MAX_USER_UPLOAD_BYTES", "0")) * 1024 * 1024
+
+# ---------- Batch upload caps (P6) ----------
+# Guard against a single request that would flush hundreds of GB to disk before
+# the one-shot commit. Count cap + total-size cap (reuses the 2 GB download cap).
+MAX_BATCH_UPLOAD_FILES = int(os.getenv("MAX_BATCH_UPLOAD_FILES", "100"))
 
 # ---------- Batch download limits (guard against oversized ZIP / timeout) ----------
 MAX_BATCH_DOWNLOAD_FILES = int(os.getenv("MAX_BATCH_DOWNLOAD_FILES", "500"))

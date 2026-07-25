@@ -1,104 +1,16 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="audit_title">审计日志</title>
-    <link rel="stylesheet" href="/static/common.css">
-</head>
-<body>
+// =====================================================================
+//  Audit log view (Phase A SPA split of audit.html)
+//  Markup: <template id="tpl-audit"> in index.html.
+//  Navigation is owned by shell.js.
+// =====================================================================
 
-<!-- ===================== MAIN APP ===================== -->
-<div class="app-container" id="appScreen">
-    <div class="app-header">
-        <h1 data-i18n="h1">📁 MinePython</h1>
-        <div class="header-right">
-            <button class="ucenter-btn" onclick="goUserCenter()" data-i18n="ucenter">用户中心</button>
-            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换风格" aria-label="切换风格" aria-pressed="false">🌙</button>
-            <div class="lang-wrapper">
-                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn" aria-haspopup="true" aria-expanded="false">中文</button>
-                <div class="lang-menu" id="langMenu">
-                    <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
-                    <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
-                    <button class="lang-menu-item" data-lang="ru" onclick="switchToLang('ru')">Русский</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ===== AUDIT VIEW ===== -->
-    <div id="viewAudit">
-
-        <div class="section-header">
-            <h2 data-i18n="audit_title">审计日志</h2>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <!-- Unified scope + user filter: one dropdown for admins/reviewers
-                     (仅本人 / 全部用户 / 具体用户). Regular users never see it. -->
-                <select id="userScope" class="audit-filter-input" style="display:none" onchange="loadAuditPublic()">
-                    <option value="self" data-i18n="audit_scope_self">仅本人</option>
-                    <option value="" data-i18n="audit_scope_all">全部用户</option>
-                </select>
-                <select id="auditAction" class="audit-filter-input" onchange="loadAuditPublic()">
-                    <option value="">全部动作</option>
-                    <option value="login">登录</option>
-                    <option value="logout">登出</option>
-                    <option value="register">注册</option>
-                    <option value="upload">上传</option>
-                    <option value="upload_multiple">批量上传</option>
-                    <option value="download">下载</option>
-                    <option value="approve">通过</option>
-                    <option value="reject">拒绝</option>
-                    <option value="delete">删除</option>
-                    <option value="delete_user">删除用户</option>
-                    <option value="create_user">创建用户</option>
-                    <option value="update_user">更新用户</option>
-                    <option value="password_change">修改密码</option>
-                    <option value="deactivate">注销</option>
-                </select>
-                <input id="auditSearch" class="audit-filter-input" data-i18n-placeholder="audit_search_ph" placeholder="搜索目标…" onkeydown="if(event.key==='Enter')loadAuditPublic()">
-                <button class="btn btn-xs" onclick="loadAuditPublic()" style="color:var(--accent);border-color:var(--accent)" data-i18n="audit_refresh">刷新</button>
-                <button class="btn btn-xs" onclick="exportAuditCSV()" data-i18n="audit_export">导出CSV</button>
-                <button id="btnClearAudit" class="btn btn-xs" onclick="clearAudit()" style="display:none;color:#e5484d;border-color:#e5484d" title="清空全部审计日志（仅管理员）">清空审计日志</button>
-            </div>
-        </div>
-
-        <!-- Self-only notice for regular users -->
-        <div id="selfNote" class="self-note" style="display:none">
-            🔒 <span data-i18n="audit_self_note">仅显示本人操作记录（管理员可查看全部）</span>
-        </div>
-
-        <div class="file-list" id="auditList">
-            <div class="center-loading"><div class="spinner"></div></div>
-        </div>
-    </div>
-</div>
-
-<script src="/static/js/util.js"></script>
-<script src="/static/js/i18n.js"></script>
-<script src="/static/js/theme.js"></script>
-<script src="/static/js/toast.js"></script>
-<script src="/static/js/auth.js"></script>
-<script src="/static/js/pending.js"></script>
-<script src="/static/js/init.js"></script>
-<script>
-// ==================== Audit log (public, permission-scoped) ====================
 var _auditCache = [];
 var _canViewAll = false;
 var _canPurge = false;
 
-
-// The audit page requires a real logged-in account. Anonymous guests (who
-// reached it via deep link / history) are bounced back to the login screen.
-function onAppReady() {
-    if (!authToken || authRole === 'anonymous') {
-        window.location.href = 'index.html';
-        return;
-    }
-    _canViewAll = (authRole === 'admin' || authRole === 'reviewer');
-    setupAuditPage();
-    loadAuditPublic();
-}
-
+// The audit page requires a real logged-in account. Anonymous guests are
+// bounced back to the home page (mount-level safety net; the shell already
+// gates, but this keeps deep links safe).
 function setupAuditPage() {
     var userScope = document.getElementById('userScope');
     var selfNote = document.getElementById('selfNote');
@@ -149,11 +61,8 @@ async function loadAuditPublic(retry) {
     var search = document.getElementById('auditSearch');
     if (search && search.value.trim()) params.set('search', search.value.trim());
 
-    // For non-admins the server ignores every filter and returns only their
-    // own rows. Admins/reviewers drive the single dropdown:
-    //   'self'            -> own rows
-    //   '' (全部用户)      -> all rows
-    //   <username>        -> that specific account
+    // Non-admins are server-scoped to their own rows. Admins/reviewers drive
+    // the single dropdown: 'self' -> own, '' -> all, <username> -> that account.
     if (_canViewAll) {
         var sel = document.getElementById('userScope');
         var v = sel ? sel.value : '';
@@ -171,11 +80,11 @@ async function loadAuditPublic(retry) {
             list.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
             return;
         }
-        var data = await res.json();
-        _auditCache = data.logs || [];
-        _canPurge = !!data.can_purge;
-        toggleClearBtn();
-        renderAuditList(_auditCache);
+    var data = await res.json();
+    _auditCache = data.logs || [];
+    _canPurge = !!data.can_purge;
+    if (typeof toggleClearBtn === 'function') toggleClearBtn();
+    renderAuditList(_auditCache);
     } catch (e) {
         list.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
     }
@@ -191,6 +100,7 @@ async function clearAudit() {
     var msg = (t('audit_clear_confirm') ||
         '确定要清空全部审计日志吗？此操作不可逆，且会记录一条「审计已清空」的留存记录。');
     if (!confirm(msg)) return;
+    // Second, explicit confirmation guard against accidental clicks.
     if (!confirm((t('audit_clear_confirm2') || '再次确认：所有审计记录将被永久删除，无法恢复。'))) return;
     try {
         var res = await fetch('/api/admin/audit/clear', {
@@ -212,6 +122,7 @@ async function clearAudit() {
 
 function renderAuditList(logs) {
     var list = document.getElementById('auditList');
+    if (!list) return;
     if (!logs.length) {
         list.innerHTML = '<div class="empty">' + (t('no_audit') || 'No audit records') +
             '<div style="margin-top:12px"><button class="btn btn-xs" onclick="loadAuditPublic()">' + (t('audit_refresh') || 'Refresh') + '</button></div></div>';
@@ -278,7 +189,14 @@ function exportAuditCSV() {
     URL.revokeObjectURL(url);
 }
 
-initApp();
-</script>
-</body>
-</html>
+// ---- mount / unmount (SPA) ----
+window.Views = window.Views || {};
+window.Views.audit = {
+    mount: function (root) {
+        if (!authToken || authRole === 'anonymous') { location.hash = '#/home'; return; }
+        _canViewAll = (authRole === 'admin' || authRole === 'reviewer');
+        setupAuditPage();
+        loadAuditPublic();
+    },
+    unmount: function () {}
+};

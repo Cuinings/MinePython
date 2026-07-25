@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 import modules.user.auth as auth
 from modules.user.auth import authenticate_token, purge_expired_tokens
-from modules.user.database import SessionLocal, SessionToken, User, init_db
+from modules.user.database import SessionLocal, RefreshToken, User, init_db
 from modules.combined import app
 from sqlalchemy import select
 
@@ -96,16 +96,31 @@ class TestLoginLockout:
 class TestMultiSession:
     def test_independent_sessions(self):
         uname = _make_active_user(password="multipass")
-        t1 = client.post("/api/auth/login", json={"username": uname, "password": "multipass"}).json()["token"]
-        t2 = client.post("/api/auth/login", json={"username": uname, "password": "multipass"}).json()["token"]
+        r1 = client.post("/api/auth/login", json={"username": uname, "password": "multipass"}).json()
+        r2 = client.post("/api/auth/login", json={"username": uname, "password": "multipass"}).json()
+        t1, rt1 = r1["token"], r1["refresh_token"]
+        t2, rt2 = r2["token"], r2["refresh_token"]
         assert t1 and t2 and t1 != t2
-        # Both sessions are valid.
+        assert rt1 and rt2 and rt1 != rt2
+        # Both access tokens are valid.
         assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {t1}"}).status_code == 200
         assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {t2}"}).status_code == 200
-        # Logging out one session does NOT invalidate the other.
-        assert client.post("/api/auth/logout", headers={"Authorization": f"Bearer {t1}"}).status_code == 200
-        assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {t1}"}).status_code == 401
+        # Logging out one session revokes ITS refresh token (so it can't renew).
+        assert client.post("/api/auth/logout", headers={"Authorization": f"Bearer {t1}"},
+                           json={"refresh_token": rt1}).status_code == 200
+        # The other session is untouched.
         assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {t2}"}).status_code == 200
+        # The logged-out session can no longer refresh (revoked refresh token).
+        rr = client.post("/api/auth/refresh", json={"refresh_token": rt1})
+        assert rr.status_code == 401
+        # The still-logged-in session CAN refresh and get a fresh access token.
+        rr2 = client.post("/api/auth/refresh", json={"refresh_token": rt2})
+        assert rr2.status_code == 200
+        assert rr2.json().get("access_token")
+        # ARCH-9 trade-off: a stateless access JWT stays valid until its TTL
+        # lapses (it cannot be revoked early); only the refresh token is dead,
+        # which forces re-login once the short-lived access token expires.
+        assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {t1}"}).status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -120,16 +135,16 @@ class TestTokenExpiry:
         admin_id = self._admin_id()
         dead = "expired_" + uuid.uuid4().hex
         with SessionLocal() as db:
-            db.add(SessionToken(user_id=admin_id, token=dead,
+            db.add(RefreshToken(user_id=admin_id, token_hash=dead,
                                 expires_at="2000-01-01 00:00:00", device="test"))
             db.commit()
-        # An expired token authenticates as nobody.
+        # A refresh token is not an access token, so it authenticates as nobody.
         assert authenticate_token(dead) is None
-        # The cleanup sweep physically removes it.
+        # The cleanup sweep physically removes the expired refresh row.
         removed = purge_expired_tokens()
         assert removed >= 1
         with SessionLocal() as db:
-            assert db.execute(select(SessionToken).where(SessionToken.token == dead)).scalar_one_or_none() is None
+            assert db.execute(select(RefreshToken).where(RefreshToken.token_hash == dead)).scalar_one_or_none() is None
 
     def test_fresh_token_survives_purge(self):
         token = _admin_token()
@@ -234,13 +249,14 @@ class TestErrorConvergence:
 # R3 — interactive API docs gated behind DEBUG
 # ---------------------------------------------------------------------------
 class TestDocsGating:
-    def test_docs_blocked_in_prod(self):
-        """Default test env (APP_DEBUG unset -> False) must block docs."""
+    def test_docs_blocked_when_disabled(self, monkeypatch):
+        """Docs are blocked unless API_DOCS_ENABLED is true (R3)."""
+        monkeypatch.setattr(app_config, "API_DOCS_ENABLED", False)
         assert client.get("/docs").status_code == 403
         assert client.get("/redoc").status_code == 403
         assert client.get("/openapi.json").status_code == 403
 
-    def test_docs_open_when_debug(self, monkeypatch):
-        monkeypatch.setattr(app_config, "DEBUG", True)
+    def test_docs_open_when_enabled(self, monkeypatch):
+        monkeypatch.setattr(app_config, "API_DOCS_ENABLED", True)
         assert client.get("/docs").status_code == 200
         assert client.get("/openapi.json").status_code == 200

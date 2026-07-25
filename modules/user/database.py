@@ -1,18 +1,24 @@
 # -*- coding: utf-8 -*-
 """用户模块数据库层 — SQLAlchemy 2.0 ORM。
 
-定义引擎、会话工厂，以及全部 ORM 模型（User / SessionToken / File /
+定义引擎、会话工厂，以及全部 ORM 模型（User / RefreshToken / File /
 AuditLog / ExtCategory / Role / Permission / RolePermission）和初始化与种子
 逻辑。所有原始 ``sqlite3`` 访问已替换为 ORM，使 schema、迁移与 RBAC 种子数据
 集中在一处。
 
 这是整个项目的单一数据基座：文件服务器与审计模块都从这里导入自己的模型
 （``File`` / ``ExtCategory`` / ``AuditLog``），因此本模块被 files / audit 依赖。
+
+ARCH-10: 引擎由 ``DATABASE_URL`` 驱动。未设置时回退到本地 SQLite 文件；设为
+``postgresql://…`` 时切换到 Postgres（psycopg3 同步驱动），使多实例可共享同一
+数据库横向扩展。SQLite 专有的 WAL / StaticPool / check_same_thread 仅在使用
+SQLite 时启用。
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Iterable
 
@@ -39,39 +45,85 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.pool import StaticPool
 
-from modules.user.config import ADMIN_NICKNAME, ADMIN_PASSWORD, ADMIN_USERNAME, DB_PATH, UPLOAD_DIR, EXT_CATEGORY
-from modules.user.utils import _hash_pw, _encrypt_plain, _decrypt_plain
+from modules.user.config import (
+    ADMIN_NICKNAME,
+    ADMIN_PASSWORD,
+    ADMIN_USERNAME,
+    DATABASE_URL,
+    DB_PATH,
+    UPLOAD_DIR,
+    EXT_CATEGORY,
+)
+from modules.user.utils import _hash_pw, _encrypt_plain, _decrypt_plain, _now_str
 
 log = logging.getLogger("fileserver.db")
 
 
 # ---------------------------------------------------------------------------
-# Engine & session
+# Engine & session (ARCH-10: DATABASE_URL-driven; SQLite default, Postgres opt-in)
 # ---------------------------------------------------------------------------
-# Use a real connection pool (QueuePool) so concurrent requests get their own
-# SQLite connection instead of fighting over a single shared one. WAL journaling
-# (set per-connection below) lets many readers and one writer proceed at once,
-# and ``busy_timeout`` makes SQLite wait under contention rather than raising
-# "database is locked" — which previously caused intermittent 500/401 errors
-# when the page's pending-poll and user-list requests fired together.
-engine = create_engine(
-    f"sqlite:///{DB_PATH}",
-    connect_args={"check_same_thread": False, "timeout": 30},
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    future=True,
-)
+def _resolve_db_url() -> str:
+    """Return the effective SQLAlchemy URL.
+
+    Falls back to the local SQLite file when ``DATABASE_URL`` is unset (dev / CI
+    / single-node). A bare ``postgres(ql)://`` URL is normalized to the psycopg3
+    (v3) sync driver so the sync SQLAlchemy engine + ``Session`` layer keep
+    working unchanged (approach A: sync SQLAlchemy + run_in_threadpool offload,
+    not a full async rewrite).
+    """
+    url = (DATABASE_URL or "").strip()
+    if not url:
+        return f"sqlite:///{DB_PATH}"
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    # Only inject +psycopg when the caller didn't pin a driver (avoids clobbering
+    # an explicit postgresql+psycopg2 / +asyncpg choice).
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+DB_URL = _resolve_db_url()
+IS_SQLITE = DB_URL.startswith("sqlite")
+
+if IS_SQLITE:
+    # Use a real connection pool (QueuePool) so concurrent requests get their own
+    # SQLite connection instead of fighting over a single shared one. WAL
+    # journaling (set per-connection below) lets many readers and one writer
+    # proceed at once, and ``busy_timeout`` makes SQLite wait under contention
+    # rather than raising "database is locked" — which previously caused
+    # intermittent 500/401 errors when concurrent requests fired together.
+    engine = create_engine(
+        DB_URL,
+        connect_args={"check_same_thread": False, "timeout": 30},
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,
+        future=True,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _enable_wal(dbapi_conn, _record):
+        """Enable WAL journaling + a generous busy timeout (SQLite only)."""
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
+else:
+    # Postgres (or any non-sqlite backend): a shared DB across instances is what
+    # enables horizontal scaling (ARCH-10). pool_pre_ping recycles connections
+    # dropped by the server / a proxy; pool_recycle guards against idle-timeout
+    # resets. No SQLite-only connect_args / WAL here.
+    engine = create_engine(
+        DB_URL,
+        pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
+        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
+        pool_pre_ping=True,
+        pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "1800")),
+        future=True,
+    )
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
-
-
-@event.listens_for(engine, "connect")
-def _enable_wal(dbapi_conn, _record):
-    """Enable WAL journaling + a generous busy timeout for concurrent access."""
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=30000")
-    cursor.close()
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +148,6 @@ class User(Base):
     # the auth/session context dict.
     password_plain: Mapped[str | None] = mapped_column(String, nullable=True)
     nickname: Mapped[str] = mapped_column(String, nullable=False, default="")
-    token: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     role: Mapped[str] = mapped_column(String, nullable=False, default="user", index=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     is_default: Mapped[bool] = mapped_column(
@@ -105,9 +156,7 @@ class User(Base):
     force_pw_change: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("0")
     )
-    created_at: Mapped[str] = mapped_column(
-        String, nullable=False, server_default=text("(datetime('now','localtime'))")
-    )
+    created_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
     # Last login source IP (set on each successful login). Shown in the user's
     # own profile and the admin user-management list.
     last_login_ip: Mapped[str] = mapped_column(
@@ -115,26 +164,27 @@ class User(Base):
     )
 
 
-class SessionToken(Base):
-    """Independent per-login session tokens (multi-session, expiring).
+class RefreshToken(Base):
+    """Server-side refresh tokens (ARCH-9) — the ONLY auth state that persists.
 
-    Replaces the legacy single ``User.token`` column as the auth source so that
-    logging in from one device no longer overwrites the token of another active
-    session (the race that caused "logged out after upload" symptoms).
+    Replaces the legacy self-built ``tokens`` (SessionToken) table. Access is now
+    a stateless, signature-verified JWT that never touches this table; only the
+    infrequent /api/auth/refresh call reads here. We store a SHA-256 *hash* of
+    the raw refresh token (never the token itself) so a DB leak cannot be
+    replayed. Deleting a row (logout) or all a user's rows (password change /
+    deactivate / admin update) revokes those sessions immediately.
     """
 
-    __tablename__ = "tokens"
+    __tablename__ = "refresh_tokens"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    token: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
     expires_at: Mapped[str] = mapped_column(String, nullable=False)
     device: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[str] = mapped_column(
-        String, nullable=False, server_default=text("(datetime('now','localtime'))")
-    )
+    created_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
 
 
 class File(Base):
@@ -147,9 +197,7 @@ class File(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     uploaded_by: Mapped[str] = mapped_column(String, nullable=False, default="anonymous")
     uploaded_ip: Mapped[str] = mapped_column(String, nullable=False, default="")
-    uploaded_at: Mapped[str] = mapped_column(
-        String, nullable=False, server_default=text("(datetime('now','localtime'))")
-    )
+    uploaded_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
 
 
 class AuditLog(Base):
@@ -160,9 +208,29 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String, nullable=False)
     target: Mapped[str] = mapped_column(String, nullable=False, default="")
     ip: Mapped[str] = mapped_column(String, nullable=False, default="")
-    created_at: Mapped[str] = mapped_column(
-        String, nullable=False, server_default=text("(datetime('now','localtime'))")
-    )
+    created_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
+
+
+class Suggestion(Base):
+    """User-submitted feature requests / suggestions (功能需求建议栏).
+
+    Every authenticated user can submit (``suggest:submit``) and see their own
+    rows; admins/reviewers holding ``suggest:view`` see all; admins holding
+    ``suggest:manage`` may change status / delete any. Access is server-scoped
+    exactly like :class:`AuditLog` (no client-side filtering of scope).
+    """
+
+    __tablename__ = "suggestions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, default="anonymous", index=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    category: Mapped[str] = mapped_column(String(16), nullable=False, default="other")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    admin_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
+    updated_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
 
 
 class ExtCategory(Base):
@@ -179,9 +247,7 @@ class ExtCategory(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     extension: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[str] = mapped_column(
-        String, nullable=False, server_default=text("(datetime('now','localtime'))")
-    )
+    created_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
 
 
 class Role(Base):
@@ -223,7 +289,11 @@ PERMISSIONS: dict[str, str] = {
     "user:approve": "审批用户注册",
     "audit:view": "查看全部审计日志（管理员 / 审核员）",
     "audit:view_self": "查看本人审计记录（所有登录用户）",
+    "audit:purge": "清空全部审计日志（仅管理员）",
     "file:adb_install": "通过 ADB 把 APK 安装到设备",
+    "suggest:submit": "提交功能需求 / 建议（所有登录用户）",
+    "suggest:view": "查看全部功能建议（管理员 / 审核员）",
+    "suggest:manage": "处理功能建议：改状态 / 删除（管理员）",
 }
 
 # Role -> (description, [permissions]). Seeded on startup; kept in sync.
@@ -232,15 +302,18 @@ ROLES: dict[str, tuple[str, list[str]]] = {
     "reviewer": (
         "审核员：可审批用户、查看审计、管理本人文件",
         ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install",
-         "user:read", "user:approve", "audit:view", "audit:view_self"],
+         "user:read", "user:approve", "audit:view", "audit:view_self",
+         "suggest:submit", "suggest:view"],
     ),
     "uploader": (
         "上传者：可上传 / 下载 / 删除本人文件",
-        ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install", "audit:view_self"],
+        ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install", "audit:view_self",
+         "suggest:submit"],
     ),
     "user": (
         "普通用户：可上传 / 下载 / 删除本人文件",
-        ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install", "audit:view_self"],
+        ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install", "audit:view_self",
+         "suggest:submit"],
     ),
     "anonymous": (
         "匿名访客：仅可浏览与下载文件（只读，无需登录）",
@@ -289,6 +362,28 @@ def orm_to_dict(obj) -> dict:
     if obj is None:
         return {}
     return {col.name: getattr(obj, col.name) for col in obj.__table__.columns}
+
+
+def audit_logs_to_dicts(db, rows) -> list[dict]:
+    """Convert AuditLog rows to API dicts, attaching each operator's nickname.
+
+    The display name prefers ``nickname`` and falls back to ``username`` when
+    the account no longer exists (e.g. deleted users) or has no nickname set.
+    ``username`` is retained on every row for identity, filtering and CSV export.
+    """
+    unames = {r.username for r in rows}
+    nick_map: dict[str, str] = {}
+    if unames:
+        for uname, nick in db.execute(
+            select(User.username, User.nickname).where(User.username.in_(unames))
+        ).all():
+            nick_map[uname] = (nick or "") or uname
+    out = []
+    for r in rows:
+        d = orm_to_dict(r)
+        d["nickname"] = nick_map.get(r.username, r.username)
+        out.append(d)
+    return out
 
 
 # ---------------------------------------------------------------------------

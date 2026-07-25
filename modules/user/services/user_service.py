@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from modules.user.config import ADMIN_USERNAME
 from modules.user.database import (
     ROLES,
-    SessionToken,
+    RefreshToken,
     User,
     get_permissions_for_role,
     orm_to_dict,
@@ -50,8 +50,8 @@ def _is_bootstrap_admin(user) -> bool:
 
 
 def invalidate_user_tokens(db: Session, user_id: int) -> None:
-    """Drop every session token for a user (forces re-login on all devices)."""
-    db.execute(delete(SessionToken).where(SessionToken.user_id == user_id))
+    """Drop every refresh token for a user (forces re-login on all devices)."""
+    db.execute(delete(RefreshToken).where(RefreshToken.user_id == user_id))
 
 
 def register_user(db: Session, username: str, password: str, nickname: str, ip: str) -> dict:

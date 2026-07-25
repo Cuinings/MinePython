@@ -1,135 +1,17 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="title">MinePython</title>
-        <script type="importmap">
-    {
-      "imports": {
-        "@types/w3c-web-usb": "/static/js/vendor2/_empty.js",
-        "@types/w3c-web-usb/": "/static/js/vendor2/",
-        "@yume-chan/adb": "/static/js/vendor2/@yume-chan/adb/esm/index.js",
-        "@yume-chan/adb/": "/static/js/vendor2/@yume-chan/adb/esm/",
-        "@yume-chan/adb-credential-web": "/static/js/vendor2/@yume-chan/adb-credential-web/esm/index.js",
-        "@yume-chan/adb-credential-web/": "/static/js/vendor2/@yume-chan/adb-credential-web/esm/",
-        "@yume-chan/adb-daemon-webusb": "/static/js/vendor2/@yume-chan/adb-daemon-webusb/esm/index.js",
-        "@yume-chan/adb-daemon-webusb/": "/static/js/vendor2/@yume-chan/adb-daemon-webusb/esm/",
-        "@yume-chan/async": "/static/js/vendor2/@yume-chan/async/esm/index.js",
-        "@yume-chan/async/": "/static/js/vendor2/@yume-chan/async/esm/",
-        "@yume-chan/event": "/static/js/vendor2/@yume-chan/event/esm/index.js",
-        "@yume-chan/event/": "/static/js/vendor2/@yume-chan/event/esm/",
-        "@yume-chan/no-data-view": "/static/js/vendor2/@yume-chan/no-data-view/esm/index.js",
-        "@yume-chan/no-data-view/": "/static/js/vendor2/@yume-chan/no-data-view/esm/",
-        "@yume-chan/stream-extra": "/static/js/vendor2/@yume-chan/stream-extra/esm/index.js",
-        "@yume-chan/stream-extra/": "/static/js/vendor2/@yume-chan/stream-extra/esm/",
-        "@yume-chan/struct": "/static/js/vendor2/@yume-chan/struct/esm/index.js",
-        "@yume-chan/struct/": "/static/js/vendor2/@yume-chan/struct/esm/",
-        "node:child_process": "/static/js/vendor2/_empty.js",
-        "node:fs": "/static/js/vendor2/_empty.js",
-        "node:fs/promises": "/static/js/vendor2/_empty.js"
-      }
-    }
-    </script>
-    <link rel="stylesheet" href="/static/common.css">
-</head>
-<body>
+// =====================================================================
+//  File management view (Phase A SPA split of files.html)
+//  Markup: <template id="tpl-files"> in index.html.
+//  Functions are global (the template's onclick="..." reference them) and a
+//  mount/unmount pair is registered on window.Views.files.
+//  Navigation is owned by shell.js (goFiles -> location.hash '#/files').
+// =====================================================================
 
-<!-- ===================== MAIN APP ===================== -->
-<div class="app-container" id="appScreen">
-    <div class="app-header">
-        <h1 data-i18n="h1">📁 MinePython</h1>
-        <div class="header-right">
-            <button class="ucenter-btn" onclick="goUserCenter()" data-i18n="ucenter">用户中心</button>
-            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换风格" aria-label="切换风格" aria-pressed="false">🌙</button>
-            <div class="lang-wrapper">
-                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn" aria-haspopup="true" aria-expanded="false">中文</button>
-                <div class="lang-menu" id="langMenu">
-                    <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
-                    <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
-                    <button class="lang-menu-item" data-lang="ru" onclick="switchToLang('ru')">Русский</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ===== FILES VIEW ===== -->
-    <div id="viewFiles" style="display:none">
-        <p class="app-subtitle">
-            <span data-i18n="subtitle_label">分类管理</span> · <a href="/docs" target="_blank">Swagger API</a>
-        </p>
-        <div class="cat-bar" id="catBar"></div>
-        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
-            <input type="text" id="searchInput" placeholder="搜索文件..." style="flex:1;padding:8px 12px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;outline:none" oninput="onSearchDebounced()">
-        </div>
-        <!-- Upload entry point -->
-        <div class="upload-entry-bar" role="button" tabindex="0" onclick="goUpload()">
-            <div class="icon-circle">⬆️</div>
-            <div class="label" data-i18n="upload_entry">上传文件</div>
-            <div class="arrow">→</div>
-        </div>
-        <div class="section-header">
-            <h2 id="listTitle"></h2>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <label style="display:flex;gap:4px;align-items:center;font-size:12px;color:var(--dim);cursor:pointer">
-                    <input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)" title="全选本页" style="width:16px;height:16px;cursor:pointer">
-                    <span data-i18n="select_all">全选</span>
-                </label>
-                <span style="font-size:11px;color:var(--dim)" id="selectCount"></span>
-                <button class="btn btn-xs" onclick="batchDownload()" id="batchDlBtn" style="display:none">批量下载</button>
-                <button class="btn btn-xs" onclick="batchDelete()" id="batchDelBtn" style="display:none;color:var(--danger);border-color:var(--danger)">批量删除</button>
-                <button class="btn btn-xs" onclick="organizeRoot()" data-i18n-title="organize_title" data-i18n="btn_organize">🗂 整理归类</button>
-            </div>
-        </div>
-        <div class="file-list" id="fileList">
-            <div class="empty" data-i18n="loading">加载中...</div>
-        </div>
-        <div id="pagination" style="display:flex;justify-content:center;gap:8px;margin-top:16px"></div>
-    </div>
-
-    <!-- ===== FILE DETAIL VIEW ===== -->
-    <div id="viewDetail" style="display:none">
-        <div class="back-row">
-            <button class="back-btn" onclick="goFiles()" data-i18n="back_files">← 返回文件浏览</button>
-        </div>
-        <div class="detail-card" id="detailContent"></div>
-    </div>
-
-    <!-- ===== UPLOAD VIEW ===== -->
-    <div id="viewUpload" style="display:none">
-        <div class="back-row">
-            <button class="back-btn" onclick="goFiles()" data-i18n="back_files">← 返回文件浏览</button>
-        </div>
-        <div class="cat-bar" id="uploadCatBar"></div>
-        <div class="drop-zone" id="dropZone">
-            <span class="icon">⬆️</span>
-            <h3 data-i18n="upload_title">点击或拖拽文件到此处上传</h3>
-            <p data-i18n="upload_desc">支持任意文件类型，可批量上传</p>
-            <span class="cat-hint" id="uploadHint"></span>
-            <input type="file" id="fileInput" multiple hidden>
-        </div>
-    </div>
-</div>
-
-<script src="/static/js/util.js"></script>
-<script src="/static/js/i18n.js"></script>
-<script src="/static/js/theme.js"></script>
-<script src="/static/js/toast.js"></script>
-<script src="/static/js/auth.js"></script>
-<script src="/static/js/pending.js"></script>
-<script src="/static/js/init.js"></script>
-<script src="/static/js/modal.js"></script>
-<script>
-// ==================== File management logic ====================
 var viewMode = 'files'; // files | upload | detail
 var activeCat = 'auto';
 var currentPage = 1;
 var currentSearch = '';
 var pageSize = 20;
-var dropZone = document.getElementById('dropZone');
-var fileInput = document.getElementById('fileInput');
-var fileList = document.getElementById('fileList');
-var uploadHint = document.getElementById('uploadHint');
+var dropZone = null, fileInput = null, fileList = null, uploadHint = null;
 
 function buildCatBar(containerId) {
     var bar = document.getElementById(containerId);
@@ -197,19 +79,6 @@ function updateUploadHint() {
     }
 }
 
-// Upload
-if (dropZone) {
-    dropZone.addEventListener('click', function() { fileInput.click(); });
-    fileInput.addEventListener('change', function() { uploadFiles(fileInput.files); });
-    ['dragenter','dragover'].forEach(function(e) { dropZone.addEventListener(e, function(ev) {
-        ev.preventDefault(); dropZone.classList.add('dragover');
-    }); });
-    ['dragleave','drop'].forEach(function(e) { dropZone.addEventListener(e, function(ev) {
-        ev.preventDefault(); dropZone.classList.remove('dragover');
-    }); });
-    dropZone.addEventListener('drop', function(ev) { uploadFiles(ev.dataTransfer.files); });
-}
-
 // Upload each file as its own request so it gets its own progress bar, while
 // running a bounded number of them concurrently. Atomicity is per-file now
 // (each POST /api/upload commits independently) — a failed file no longer
@@ -221,8 +90,6 @@ function uploadFiles(files) {
     if (!files.length) return;
     var cat = activeCat || 'auto';
 
-    // Floating overlay (bottom-right) so each file's progress is clearly
-    // visible regardless of where the upload card sits on the page.
     var overlay = document.getElementById('uploadOverlay');
     if (overlay && overlay._hideTimer) { clearTimeout(overlay._hideTimer); }
     if (!overlay) {
@@ -279,7 +146,7 @@ function uploadFiles(files) {
         head.style.cssText = 'display:flex;justify-content:space-between;font-size:12px;' +
             'color:var(--dim);margin-bottom:4px';
         var nameEl = document.createElement('span');
-        nameEl.textContent = name;                 // textContent => no HTML injection
+        nameEl.textContent = name;
         nameEl.style.cssText = 'max-width:78%;overflow:hidden;text-overflow:ellipsis;' +
             'white-space:nowrap';
         var pctEl = document.createElement('span');
@@ -356,7 +223,7 @@ function uploadFiles(files) {
             toast(t('toast_upload_ok') + (cat === 'auto' ? t('auto_label') : cat) + extra);
             buildCatBar('catBar');
             buildCatBar('uploadCatBar');
-            goFiles();
+            showFilesView();
         } else {
             toast(t('toast_upload_fail'), true);
         }
@@ -378,9 +245,9 @@ function uploadFiles(files) {
 
 // File list
 var PREVIEW_ICONS = {
-    '图片': '\ud83d\uddbc\ufe0f', '文档': '\ud83d\udcc4', '视频': '\ud83c\udfa5',
-    '音频': '\ud83c\udfb5', '压缩包': '\ud83d\udce6', '代码': '\ud83d\udcbb',
-    '安装包': '\ud83d\udce6', '其他': '\ud83d\udcc1'
+    '图片': '🖼️', '文档': '📄', '视频': '🎥',
+    '音频': '🎵', '压缩包': '📦', '代码': '💻',
+    '安装包': '📦', '其他': '📁'
 };
 var IMAGE_EXTS = ['.jpg','.jpeg','.png','.gif','.webp','.bmp','.svg','.ico'];
 
@@ -388,9 +255,9 @@ function getPreviewHtml(f) {
     var ext = '.' + f.filename.split('.').pop().toLowerCase();
     var catClass = ' file-preview-' + (f.category || 'other');
     if (IMAGE_EXTS.indexOf(ext) >= 0) {
-        return '<div class="file-preview file-preview-img' + catClass + '"><img src="' + downloadUrl(f.path) + '" loading="lazy" onerror="this.parentElement.innerHTML=\'' + (PREVIEW_ICONS[f.category] || '\ud83d\udcc1') + '\'"></div>';
+        return '<div class="file-preview file-preview-img' + catClass + '"><img src="' + downloadUrl(f.path) + '" loading="lazy" onerror="this.parentElement.innerHTML=\'' + (PREVIEW_ICONS[f.category] || '📁') + '\'"></div>';
     }
-    return '<div class="file-preview' + catClass + '">' + (PREVIEW_ICONS[f.category] || '\ud83d\udcc1') + '</div>';
+    return '<div class="file-preview' + catClass + '">' + (PREVIEW_ICONS[f.category] || '📁') + '</div>';
 }
 
 var currentDetailFile = null;
@@ -403,11 +270,6 @@ function showFileDetailIdx(i) {
     if (f) showFileDetail(f);
 }
 
-// Decide whether the current user may delete a given file.
-// - admins (file:delete_any) may delete ANY file;
-// - everyone else may only delete files they uploaded themselves;
-// - anonymous guests cannot delete.
-// This mirrors the backend ownership check in /api/files (delete / batch-delete).
 function canDeleteFile(f) {
     if (!authUser || !authRole || authRole === 'anonymous') return false;
     if (authRole === 'admin') return true;
@@ -417,14 +279,14 @@ function canDeleteFile(f) {
 function showFileDetail(f) {
     currentDetailFile = f;
     viewMode = 'detail';
-    document.getElementById('viewFiles').style.display = 'none';
-    document.getElementById('viewUpload').style.display = 'none';
-    document.getElementById('viewDetail').style.display = 'block';
+    var vf = document.getElementById('viewFiles'); if (vf) vf.style.display = 'none';
+    var vu = document.getElementById('viewUpload'); if (vu) vu.style.display = 'none';
+    var vd = document.getElementById('viewDetail'); if (vd) vd.style.display = 'block';
 
-    // Detail page shows the preview inline (no separate "preview" entry needed).
     var preview = buildInlinePreviewHtml(f.path, f.filename);
 
-    document.getElementById('detailContent').innerHTML =
+    var dc = document.getElementById('detailContent');
+    if (dc) dc.innerHTML =
         '<div class="detail-preview">' + preview + '</div>' +
         '<div class="detail-info">' +
             '<div class="label">' + (t('detail_name') || 'Filename') + '</div><div class="value">' + escHtml(f.filename) + '</div>' +
@@ -447,7 +309,7 @@ async function delFileFromDetail() {
     var f = currentDetailFile;
     if (!(await confirmModal({ message: escHtml(t('confirm_del_file') + f.path + '"?'), danger: true }))) return;
     var res = await fetch('/api/files/' + encodeURIComponent(f.path), { method: 'DELETE', headers: getAuthHeaders() });
-    if (res.ok) { toast(t('toast_deleted')); goFiles(); }
+    if (res.ok) { toast(t('toast_deleted')); showFilesView(); }
     else toast(t('toast_del_failed'), true);
 }
 
@@ -457,29 +319,30 @@ async function loadFiles() {
     if (currentSearch) params.set('search', currentSearch);
     params.set('page', currentPage);
     params.set('page_size', pageSize);
-    fileList.innerHTML = renderFileSkeleton();
+    if (fileList) fileList.innerHTML = renderFileSkeleton();
     var url = '/api/files?' + params.toString();
     var res = await fetch(url, { headers: getAuthHeaders() });
     if (!res.ok) {
         if (res.status === 401) {
             forceLogout();
         } else {
-            fileList.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
+            if (fileList) fileList.innerHTML = '<div class="empty">' + (t('toast_failed') || 'Failed') + '</div>';
         }
         return;
     }
     var data = await res.json();
     _fileRows = data.files;
 
-    document.getElementById('listTitle').textContent =
+    var lt = document.getElementById('listTitle');
+    if (lt) lt.textContent =
         (activeCat && activeCat !== 'auto')
             ? t('cat_label') + activeCat + ' (' + data.total + ')'
             : t('all_files') + ' (' + data.total + ')';
 
     if (!data.files.length) {
-        fileList.innerHTML = '<div class="empty">' + t('no_files') +
+        if (fileList) fileList.innerHTML = '<div class="empty">' + t('no_files') +
             '<div style="margin-top:14px"><button class="btn" onclick="goUpload()">' + t('upload_entry') + '</button></div></div>';
-        document.getElementById('pagination').innerHTML = '';
+        var pg = document.getElementById('pagination'); if (pg) pg.innerHTML = '';
         updateBatchUI();
         return;
     }
@@ -489,12 +352,8 @@ async function loadFiles() {
         var by = f.uploaded_by === 'anonymous' ? t('anonymous') : (f.uploader_nickname || f.uploaded_by);
         var preview = getPreviewHtml(f);
         var typeLabel = f.category || 'file';
-        // extract extension for badge
         var dotIdx = f.filename.lastIndexOf('.');
         var ext = (dotIdx > 0) ? f.filename.slice(dotIdx + 1).toUpperCase() : '';
-        // Only show the "preview" action for types the browser can render
-        // inline. For everything else the entry would wrongly trigger a
-        // download, so we hide it and leave download/delete only.
         var previewable = isPreviewable(f.path);
         html += '<div class="file-card">' +
             '<input type="checkbox" class="file-check" data-path="' + f.path + '" onclick="event.stopPropagation();updateBatchUI()">' +
@@ -507,11 +366,11 @@ async function loadFiles() {
                 '</div>' +
                 '<div class="file-meta-row">' +
                     (showCat ? '<span class="file-type" title="' + t('detail_category') + '">' + typeLabel + '</span>' : '') +
-                    '<span class="file-uploader" title="IP: ' + (f.uploaded_ip || '-') + '">\u25CF ' + escHtml(by) + '</span>' +
+                    '<span class="file-uploader" title="IP: ' + (f.uploaded_ip || '-') + '">● ' + escHtml(by) + '</span>' +
                 '</div>' +
                 '<div class="file-bottom-row">' +
                     '<span class="file-time" title="' + (f.uploaded_at || '') + '">' + (f.uploaded_at || '-') + '</span>' +
-                    '<span class="file-size-dot">\u00B7</span>' +
+                    '<span class="file-size-dot">·</span>' +
                     '<span class="file-size-val">' + f.size_human + '</span>' +
                 '</div>' +
             '</div>' +
@@ -523,16 +382,16 @@ async function loadFiles() {
             '</div>' +
             '</div></div>';
     });
-    fileList.innerHTML = html;
+    if (fileList) fileList.innerHTML = html;
 
-    // Pagination (windowed: 1 … cur-1 cur cur+1 … total + prev/next + jump)
     var totalPages = Math.ceil(data.total / pageSize) || 1;
-    document.getElementById('pagination').innerHTML = buildPagination(currentPage, totalPages);
+    var pg = document.getElementById('pagination');
+    if (pg) pg.innerHTML = buildPagination(currentPage, totalPages);
     updateBatchUI();
 }
 
 function onSearch() {
-    currentSearch = document.getElementById('searchInput').value.trim();
+    currentSearch = (document.getElementById('searchInput') ? document.getElementById('searchInput').value : '').trim();
     currentPage = 1;
     loadFiles();
 }
@@ -599,9 +458,9 @@ function updateBatchUI() {
     var checked = document.querySelectorAll('.file-check:checked');
     var all = document.querySelectorAll('.file-check');
     var count = checked.length;
-    document.getElementById('batchDelBtn').style.display = count ? 'inline-block' : 'none';
-    document.getElementById('batchDlBtn').style.display = count ? 'inline-block' : 'none';
-    document.getElementById('selectCount').textContent = count ? '已选 ' + count + ' 项' : '';
+    var bdel = document.getElementById('batchDelBtn'); if (bdel) bdel.style.display = count ? 'inline-block' : 'none';
+    var bdl = document.getElementById('batchDlBtn'); if (bdl) bdl.style.display = count ? 'inline-block' : 'none';
+    var sc = document.getElementById('selectCount'); if (sc) sc.textContent = count ? '已选 ' + count + ' 项' : '';
     var selAll = document.getElementById('selectAll');
     if (selAll) selAll.checked = (all.length > 0 && checked.length === all.length);
 }
@@ -686,12 +545,8 @@ async function organizeRoot() {
 var PREVIEW_IMG = ['.jpg','.jpeg','.png','.gif','.webp','.bmp','.svg','.ico'];
 var PREVIEW_VIDEO = ['.mp4','.webm','.ogg','.mov','.m4v','.avi','.mkv','.wmv','.flv'];
 var PREVIEW_AUDIO = ['.mp3','.wav','.flac','.aac','.ogg','.m4a','.opus','.wma'];
-// Document-ish types the browser can render inside an <iframe> inline.
 var PREVIEW_DOC = ['.pdf','.txt','.html','.htm','.md','.markdown','.json','.xml','.csv','.log','.js','.css','.py','.java','.c','.cpp','.go','.rs','.sh','.yml','.yaml'];
 
-// A file is "previewable" only when the browser can actually render it inline.
-// Anything else (e.g. .apk/.exe/.docx/.zip) must go through download — never
-// through the preview entry, or the browser silently triggers a download.
 function isPreviewable(path) {
     var ext = (path.split('.').pop() || '').toLowerCase();
     return PREVIEW_IMG.indexOf('.' + ext) >= 0
@@ -700,10 +555,6 @@ function isPreviewable(path) {
         || PREVIEW_DOC.indexOf('.' + ext) >= 0;
 }
 
-// Shared inline-preview builder used by BOTH the detail page and the preview
-// modal, so behaviour stays identical. For non-previewable types it shows a
-// friendly "cannot preview" note plus a download link instead of forcing a
-// download (the root cause of "点击预览却弹出下载").
 function buildInlinePreviewHtml(path, filename) {
     var ext = (path.split('.').pop() || '').toLowerCase();
     var url = previewUrl(path);
@@ -727,11 +578,10 @@ function buildInlinePreviewHtml(path, filename) {
         '</div>';
 }
 
-// Replace a broken preview <img> with a graceful fallback box.
 function imgFallback(img) {
     var box = document.createElement('div');
     box.className = 'preview-fallback';
-    box.innerHTML = '<div class="preview-fallback-text">' + (t('preview_unsupported') || 'Cannot preview this file.') + '</div>';
+    box.innerHTML = '<div class="preview-fallback-text">' + (t('preview_unsupported') || 'Cannot preview this.') + '</div>';
     if (img && img.parentNode) img.parentNode.replaceChild(box, img);
 }
 
@@ -740,7 +590,8 @@ function previewUrl(path) {
 }
 
 function openPreview(path) {
-    document.getElementById('previewBody').innerHTML = buildInlinePreviewHtml(path, path);
+    var pb = document.getElementById('previewBody');
+    if (pb) pb.innerHTML = buildInlinePreviewHtml(path, path);
     showModal('previewModal');
 }
 
@@ -750,20 +601,22 @@ function closePreview() {
     if (b) b.innerHTML = '';
 }
 
-// ===== View navigation (within this module) =====
-function goFiles() {
+// ===== View sub-navigation (within this module) =====
+// NOTE: goFiles is owned by shell.js (hash navigation). For in-view "back to
+// file list" we use showFilesView(), which only toggles the sub-views.
+function showFilesView() {
     viewMode = 'files';
-    document.getElementById('viewFiles').style.display = 'block';
-    document.getElementById('viewUpload').style.display = 'none';
-    document.getElementById('viewDetail').style.display = 'none';
+    var vf = document.getElementById('viewFiles'); if (vf) vf.style.display = 'block';
+    var vu = document.getElementById('viewUpload'); if (vu) vu.style.display = 'none';
+    var vd = document.getElementById('viewDetail'); if (vd) vd.style.display = 'none';
     buildCatBar('catBar');
     loadFiles();
 }
 function goUpload() {
     viewMode = 'upload';
-    document.getElementById('viewFiles').style.display = 'none';
-    document.getElementById('viewDetail').style.display = 'none';
-    document.getElementById('viewUpload').style.display = 'block';
+    var vf = document.getElementById('viewFiles'); if (vf) vf.style.display = 'none';
+    var vd = document.getElementById('viewDetail'); if (vd) vd.style.display = 'none';
+    var vu = document.getElementById('viewUpload'); if (vu) vu.style.display = 'block';
     updateUploadHint();
     buildCatBar('uploadCatBar');
 }
@@ -774,16 +627,9 @@ function refreshUI() {
     if (viewMode === 'files') loadFiles();
 }
 
-// After login / on load, show the file list.
-function onAppReady() { syncAccountFlags(); goFiles(); }
-
 // ===== Self-service: change password / deactivate account =====
 
-// Hide the "注销账号" entry for the protected default account. The backend
-// already refuses deactivation of default accounts; this just keeps the
-// (non-functional) entry out of the UI for those accounts.
-// Fallback: if the DB is_default flag is missing on a legacy database, hide
-// based on the configured bootstrap admin username as well.
+// Hide the "注销账号" entry for the protected default account.
 function applyAccountUi() {
     var el = document.getElementById('deactivateMenuItem');
     var isProtected = authRole === 'anonymous' || authIsDefault || (authUser && authUser === authBootstrapAdmin);
@@ -802,17 +648,17 @@ async function syncAccountFlags() {
 
 function toggleUserMenu(e) {
     e.stopPropagation();
-    // Anonymous guests have no account to manage — keep the menu inert.
     if (authRole === 'anonymous') return;
-    document.getElementById('userMenu').classList.toggle('show');
+    var m = document.getElementById('userMenu');
+    if (m) m.classList.toggle('show');
 }
 
 function openChangePwModal() {
-    document.getElementById('userMenu').classList.remove('show');
-    document.getElementById('changePwOld').value = '';
-    document.getElementById('changePwNew').value = '';
-    document.getElementById('changePwConfirm').value = '';
-    document.getElementById('changePwErr').textContent = '';
+    var m = document.getElementById('userMenu'); if (m) m.classList.remove('show');
+    var o = document.getElementById('changePwOld'); if (o) o.value = '';
+    var n = document.getElementById('changePwNew'); if (n) n.value = '';
+    var c = document.getElementById('changePwConfirm'); if (c) c.value = '';
+    var e = document.getElementById('changePwErr'); if (e) e.textContent = '';
     showModal('changePwModal');
 }
 
@@ -842,7 +688,7 @@ async function submitChangePw() {
 }
 
 async function deactivateAccount() {
-    document.getElementById('userMenu').classList.remove('show');
+    var m = document.getElementById('userMenu'); if (m) m.classList.remove('show');
     if (!(await confirmModal({ message: escHtml(t('deactivate_confirm')), danger: true }))) return;
     var res = await fetch('/api/auth/me/deactivate', { method: 'POST', headers: getAuthHeaders() });
     var data = await res.json().catch(function () { return {}; });
@@ -892,7 +738,6 @@ function closeAdbModal() {
 // ---- ADB 安装引导向导（未检测到 adb 时展示） ----
 var adbCurrentPath = null;
 
-// 全局错误兜底：任何未捕获的 JS 错误都变成可见提示，避免“点击没反应”却无任何信息
 window.addEventListener('error', function (ev) {
     try { toast('JS 错误：' + (ev.message || (ev.error && ev.error.message) || '未知'), true); } catch (_) {}
 });
@@ -908,7 +753,6 @@ function adbOsDetect() {
     return 'win';
 }
 
-// 单条步骤：序号 + 标题 + 说明（说明可含 HTML：链接 / code / b）
 function adbStep(n, title, body) {
     return '<div class="adb-step">' +
         '<div class="adb-step-no">' + n + '</div>' +
@@ -919,7 +763,6 @@ function adbStep(n, title, body) {
     '</div>';
 }
 
-// 按操作系统返回详细配置步骤
 function adbStepsHtml(os) {
     var dl = '<a href="https://developer.android.com/tools/releases/platform-tools" target="_blank" rel="noopener">developer.android.com/tools/releases/platform-tools</a>';
     var win = ''
@@ -952,7 +795,6 @@ function adbOsTab(os, activeOs, label) {
     return '<button class="adb-os' + (os === activeOs ? ' active' : '') + '" data-os="' + os + '" onclick="adbSetOs(\'' + os + '\')">' + label + '</button>';
 }
 
-// 非安全上下文（必须 https）时的提示
 function adbNeedHttpsHtml() {
     return '<div class="adb-guide">' +
         '<div class="adb-guide-intro">' + escHtml(t('adb_need_https') ||
@@ -960,7 +802,6 @@ function adbNeedHttpsHtml() {
         '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>' +
     '</div>';
 }
-// 浏览器不支持 WebUSB 时的提示
 function adbNeedBrowserHtml() {
     return '<div class="adb-guide">' +
         '<div class="adb-guide-intro">' + escHtml(t('adb_need_browser') ||
@@ -968,10 +809,8 @@ function adbNeedBrowserHtml() {
         '<div class="adb-actions"><button class="btn" onclick="closeAdbModal()">' + (t('adb_close') || '关闭') + '</button></div>' +
     '</div>';
 }
-// 从指引页返回时重新尝试安装
 function adbRetry() { adbWifiRescan(); }
 
-// WebUSB 配置指引（点击安装但设备未连接/被拒绝时展示）
 function adbGuideHtml(path) {
     adbCurrentPath = path || null;
     return '<div class="adb-guide">' +
@@ -996,7 +835,6 @@ function adbSetOs(os) {
     if (el) el.innerHTML = adbStepsHtml(os);
 }
 
-// 向导里的「重新检测」：重扫设备并按结果分流
 async function adbRescan() {
     setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_scanning') || '正在扫描设备…') + '</div></div>');
     try {
@@ -1027,7 +865,6 @@ async function adbRescan() {
     }
 }
 
-// 把设备数组渲染成可点击的选择列表（仅已授权设备可点）
 function adbDevicePickerHtml(path, devices) {
     var html = '<div class="adb-choose">' + (t('adb_choose') || '选择目标设备') + '</div>' +
         '<div class="adb-dev-list">';
@@ -1044,7 +881,6 @@ function adbDevicePickerHtml(path, devices) {
     return html;
 }
 
-// 设备自检：不装 APK，只判断「WebUSB 能否看到手机」以及「手机是否处于 ADB 调试模式」
 function adbDiagNothingVisible() {
     setAdbModalBody(
         '<div class="adb-msg adb-err">❌ WebUSB <b>完全看不到任何 USB 设备</b>。<br><br>' +
@@ -1060,7 +896,6 @@ function adbDiagNothingVisible() {
 
 async function adbDiagnosePick() {
     try {
-        // 用「空过滤器」再弹一次：能看到所有已连接的 USB 设备
         const dev = await navigator.usb.requestDevice({ filters: [] });
         if (dev) {
             const name = dev.productName || dev.manufacturerName || dev.serialNumber || '未知设备';
@@ -1112,8 +947,6 @@ async function adbDiagnose() {
 }
 
 // ===== WiFi (网络 ADB) 配对面板 =====
-// 适用于手机通过 WiFi ADB 连到电脑（WebUSB 看不到 WiFi 设备）。
-// 让服务器上的 adb 去 connect 手机 IP:端口，连上后走服务端安装通道。
 function adbWifiRender(devices, msg) {
     var ip = window.__adbWifiIp || '';
     var listHtml = '';
@@ -1183,14 +1016,12 @@ async function adbWifiRescan() {
     }
 }
 
-// 入口：点击「ADB安装」→ 优先走服务端通道（WiFi/USB 均可），无设备时给出 WiFi 配对
 function adbStart(path) {
     adbCurrentPath = path || null;
     openAdbModal('<div class="adb-loading"><div class="spinner"></div><div>正在连接服务器 ADB…</div></div>');
     adbWifiRescan();
 }
 
-// 入口：浏览器 WebUSB 直连（仅适用于手机 USB 物理插在 B 电脑且未走 WiFi 的场景）
 async function adbInstall(path) {
     if (!canAdbInstall()) { toast(t('login_required') || '请先登录', true); return; }
     if (!window.isSecureContext) { openAdbModal(adbNeedHttpsHtml()); return; }
@@ -1199,12 +1030,7 @@ async function adbInstall(path) {
     adbCurrentPath = path;
     openAdbModal('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_connecting') || '正在连接设备（请在浏览器弹窗中选择手机并允许）…') + '</div></div>');
     try {
-        // 浏览器端 ADB 实现（ya-webadb 2.x，@yume-chan/adb + adb-daemon-webusb + adb-credential-web）
-        // 已本地打包到 /static/js/webadb2.bundle.js，由服务器 A 上的 download_webadb2.py 生成；
-        // B 浏览器从同源加载，无需访问外网 CDN。
         var bundleUrl = '/static/js/webadb2.bundle.js?v=' + Date.now();
-
-        // 预检：如果服务器还没识别到刚生成的 bundle，给出明确提示而不是浏览器原生 404。
         var check = await fetch(bundleUrl, { method: 'HEAD', cache: 'no-store' });
         if (!check.ok) {
             throw new Error(
@@ -1212,7 +1038,6 @@ async function adbInstall(path) {
                 (t('adb_lib_fail_hint') || '请先在服务器运行 "python download_webadb2.py"，然后完全重启服务器再试。')
             );
         }
-
         const mod = await import(bundleUrl);
         const Adb = mod.Adb;
         const AdbDaemonTransport = mod.AdbDaemonTransport;
@@ -1221,9 +1046,7 @@ async function adbInstall(path) {
         if (!Adb || !AdbDaemonTransport || !DeviceManager || !AdbWebCredentialStore) {
             throw new Error(t('adb_lib_fail') || 'ADB 库未加载：请先在服务器运行 python download_webadb2.py');
         }
-
         setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_connecting') || '正在连接设备…') + '</div></div>');
-        // 2.x：用浏览器原生 WebUSB 选设备，再 connect + authenticate
         const manager = DeviceManager.BROWSER;
         if (!manager) throw new Error(t('adb_need_browser') || '当前浏览器不支持 WebUSB（请用 Chrome / Edge）。');
         const device = await manager.requestDevice();
@@ -1235,14 +1058,11 @@ async function adbInstall(path) {
             credentialStore: new AdbWebCredentialStore(),
         });
         const adb = new Adb(transport);
-
         setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_downloading') || '正在从服务器下载 APK…') + '</div></div>');
-        const res = await fetch(downloadUrl(path));   // 同源：服务器 A 上的文件（已带 token）
+        const res = await fetch(downloadUrl(path));
         if (!res.ok) throw new Error((t('adb_dl_fail') || 'APK 下载失败') + '：' + res.status);
         const buf = await res.arrayBuffer();
-
         setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_installing') || '正在安装到手机…') + '</div></div>');
-        // 2.x 没有高层 install()：sync 推送 APK 到手机，再 pm install（与 ya-webadb 旧版行为一致）
         const fileName = Math.random().toString().substring(2);
         const filePath = '/data/local/tmp/' + fileName + '.apk';
         const sync = await adb.sync();
@@ -1263,7 +1083,6 @@ async function adbInstall(path) {
         if (/Failure|error:/i.test(output)) {
             throw new Error((t('adb_install_fail') || '安装失败') + '：' + output.trim());
         }
-
         setAdbModalBody(
             '<div class="adb-result adb-ok"><div class="adb-icon">✓</div>' +
             '<div class="adb-result-title">' + (t('adb_success') || '安装成功') + '</div>' +
@@ -1271,8 +1090,6 @@ async function adbInstall(path) {
         );
     } catch (e) {
         var msg = (e && e.message) ? e.message : String(e);
-        // WebUSB 特有：设备被本机另一个程序（本地 adb.exe / 系统 USB 驱动）占用。
-        // 你的情况是手机经 WiFi 连接，应改用服务端 WiFi 通道，而不是 WebUSB。
         if (/already in use|in used by another/i.test(msg)) {
             const guide = (t('adb_usb_busy') || '❌ WebUSB 无法占用该设备：它已被本机另一个程序（通常是本地 adb.exe 或系统 USB 驱动）占用。\n' +
                 '你的手机是 WiFi 连接，请【不要选 WebUSB】，改用上方「📶 WiFi 配对」面板：\n' +
@@ -1300,7 +1117,6 @@ async function adbInstall(path) {
     }
 }
 
-// 真正执行安装请求
 async function adbDoInstall(path, serial) {
     setAdbModalBody('<div class="adb-loading"><div class="spinner"></div><div>' + (t('adb_installing') || '正在安装…') + '</div></div>');
     try {
@@ -1311,7 +1127,6 @@ async function adbDoInstall(path, serial) {
         });
         var data = await res.json();
         if (!res.ok) {
-            // 后端要求选择具体设备 -> 重新弹出选择列表
             if (data && data.needs_serial) {
                 setAdbModalBody(adbDevicePickerHtml(path, data.devices || []));
                 return;
@@ -1346,47 +1161,30 @@ async function adbDoInstall(path, serial) {
     }
 }
 
-initApp();
-</script>
-
-<!-- ===== Modal: Change Password ===== -->
-<div class="modal-overlay" id="changePwModal" data-close="closeChangePwModal">
-    <div class="modal-card">
-        <h2 data-i18n="change_pw_title">修改密码</h2>
-        <div class="error" id="changePwErr"></div>
-        <label data-i18n="old_pw">当前密码</label>
-        <input type="password" id="changePwOld" data-i18n-placeholder="old_pw" placeholder="当前密码">
-        <label data-i18n="new_pw">新密码</label>
-        <input type="password" id="changePwNew" data-i18n-placeholder="new_pw" placeholder="新密码">
-        <label data-i18n="confirm_pw">确认新密码</label>
-        <input type="password" id="changePwConfirm" data-i18n-placeholder="confirm_pw" placeholder="确认新密码">
-        <div class="modal-actions">
-            <button class="btn btn-cancel" onclick="closeChangePwModal()" data-i18n="btn_cancel">取消</button>
-            <button class="btn btn-save" onclick="submitChangePw()" data-i18n="btn_save">保存</button>
-        </div>
-    </div>
-</div>
-
-<!-- ===== Modal: File Preview (P1-3) ===== -->
-<div class="modal-overlay" id="previewModal" data-close="closePreview" onclick="if(event.target===this)closePreview()">
-    <div class="modal-card preview-card">
-        <div class="preview-header">
-            <h2 data-i18n="preview_title">预览</h2>
-            <button class="btn btn-cancel" onclick="closePreview()" title="关闭">✕</button>
-        </div>
-        <div class="preview-body" id="previewBody"></div>
-    </div>
-</div>
-<!-- ===== Modal: ADB Install (P-ADB) ===== -->
-<div class="modal-overlay" id="adbModal" data-close="closeAdbModal" onclick="if(event.target===this)closeAdbModal()">
-    <div class="modal-card adb-card">
-        <div class="preview-header">
-            <h2 id="adbModalTitle">ADB 安装</h2>
-            <button class="btn btn-cancel" onclick="closeAdbModal()" title="关闭">✕</button>
-        </div>
-        <div class="adb-body" id="adbModalBody"></div>
-    </div>
-</div>
-
-</body>
-</html>
+// ---- mount / unmount (SPA) ----
+window.Views = window.Views || {};
+window.Views.files = {
+    mount: function (root) {
+        dropZone = document.getElementById('dropZone');
+        fileInput = document.getElementById('fileInput');
+        fileList = document.getElementById('fileList');
+        uploadHint = document.getElementById('uploadHint');
+        if (dropZone) {
+            dropZone.addEventListener('click', function () { if (fileInput) fileInput.click(); });
+            if (fileInput) fileInput.addEventListener('change', function () { uploadFiles(fileInput.files); });
+            ['dragenter', 'dragover'].forEach(function (e) {
+                dropZone.addEventListener(e, function (ev) { ev.preventDefault(); dropZone.classList.add('dragover'); });
+            });
+            ['dragleave', 'drop'].forEach(function (e) {
+                dropZone.addEventListener(e, function (ev) { ev.preventDefault(); dropZone.classList.remove('dragover'); });
+            });
+            dropZone.addEventListener('drop', function (ev) { uploadFiles(ev.dataTransfer.files); });
+        }
+        syncAccountFlags();
+        showFilesView();
+    },
+    unmount: function () {
+        var overlay = document.getElementById('uploadOverlay');
+        if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+};

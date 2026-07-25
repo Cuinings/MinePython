@@ -12,11 +12,14 @@ import shutil
 import subprocess
 import sys
 import ctypes
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from cryptography.fernet import Fernet, InvalidToken
+
+import modules.user.config as _cfg
 
 log = logging.getLogger("uvicorn")
 
@@ -25,17 +28,61 @@ log = logging.getLogger("uvicorn")
 _ph = PasswordHasher(memory_cost=19456, time_cost=2, parallelism=1)
 
 
+def _now_str() -> str:
+    """Local wall-clock timestamp string shared by every ``*_at`` column.
+
+    Kept database-agnostic on purpose (ARCH-10): SQLite's ``datetime('now',
+    'localtime')`` DEFAULT does not exist on Postgres, so timestamps are now
+    supplied by Python instead of a SQL server-default. This preserves the
+    existing local-time formatting the UI already renders. For strict
+    cross-instance ordering, run every instance in the same timezone (the Docker
+    image sets ``TZ``) or switch this to ``datetime.now(timezone.utc)``.
+    """
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _audit_log(action: str, target: str = "", username: str = "anonymous", ip: str = ""):
     """Write an audit log entry to the database."""
     from sqlalchemy import text
 
     from modules.user.database import SessionLocal
     with SessionLocal() as db:
+        # created_at is set explicitly (not via a SQL server-default) so this
+        # raw INSERT works identically on SQLite and Postgres (ARCH-10).
         db.execute(
-            text("INSERT INTO audit_log (username, action, target, ip) VALUES (:u, :a, :t, :i)"),
-            {"u": username, "a": action, "t": target, "i": ip},
+            text(
+                "INSERT INTO audit_log (username, action, target, ip, created_at) "
+                "VALUES (:u, :a, :t, :i, :c)"
+            ),
+            {"u": username, "a": action, "t": target, "i": ip, "c": _now_str()},
         )
         db.commit()
+
+
+def purge_audit_log() -> int:
+    """Delete audit_log rows older than AUDIT_LOG_RETENTION_DAYS (0 = disabled).
+
+    Cross-DB: the cutoff is a plain local-time string in the same
+    ``"%Y-%m-%d %H:%M:%S"`` format the table uses, so a lexicographic
+    ``created_at < cutoff`` compare is correct on both SQLite and Postgres.
+    """
+    days = _cfg.AUDIT_LOG_RETENTION_DAYS
+    if days <= 0:
+        return 0
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    from sqlalchemy import text
+
+    from modules.user.database import SessionLocal
+
+    removed = 0
+    with SessionLocal() as db:
+        result = db.execute(
+            text("DELETE FROM audit_log WHERE created_at <> '' AND created_at < :c"),
+            {"c": cutoff},
+        )
+        db.commit()
+        removed = int(result.rowcount or 0)
+    return removed
 
 
 def _client_ip(request) -> str:

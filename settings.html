@@ -14,10 +14,9 @@
         <h1 data-i18n="h1">📁 MinePython</h1>
         <div class="header-right">
             <button class="ucenter-btn" onclick="goUserCenter()" data-i18n="ucenter">用户中心</button>
-            <button class="logout-btn" onclick="doLogout()" data-i18n="logout">退出</button>
-            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换主题">🌙</button>
+            <button class="theme-btn" onclick="toggleTheme()" id="themeBtn" title="切换风格" aria-label="切换风格" aria-pressed="false">🌙</button>
             <div class="lang-wrapper">
-                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn">EN</button>
+                <button class="lang-btn" onclick="toggleLangMenu(event)" id="langBtn" aria-haspopup="true" aria-expanded="false">中文</button>
                 <div class="lang-menu" id="langMenu">
                     <button class="lang-menu-item" data-lang="zh" onclick="switchToLang('zh')">中文</button>
                     <button class="lang-menu-item" data-lang="en" onclick="switchToLang('en')">English</button>
@@ -29,9 +28,6 @@
 
     <!-- ===== SETTINGS VIEW (standalone module entry) ===== -->
     <div id="viewSettings">
-        <div class="back-row">
-            <button class="back-btn" onclick="goHome()" data-i18n="back_home">← 返回首页</button>
-        </div>
         <h2 class="section-header" data-i18n="settings">设置</h2>
 
         <!-- Site settings panel (admin only) -->
@@ -45,6 +41,27 @@
                 <button class="btn btn-save" id="saveSiteBtn" onclick="saveSiteName()" data-i18n="site_save">保存</button>
             </div>
             <div id="siteSavedHint" style="font-size:12px;color:var(--dim);margin-top:6px;display:none"></div>
+            <div class="file-card" style="padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+                <label style="font-size:13px;color:var(--dim);white-space:nowrap">最大上传大小 (MB)</label>
+                <input type="number" id="maxUploadMbInput" min="1" max="1048576" style="width:140px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text)">
+                <button class="btn btn-save" id="saveUploadBtn" onclick="saveUploadLimit()">保存</button>
+                <span id="uploadLimitHint" style="font-size:12px;color:var(--dim);display:none"></span>
+                <div style="font-size:11px;color:var(--dim);width:100%">提示：调大超过 500MB 且使用了 nginx 反代时，需用 envsubst 重新渲染 nginx.conf（见文件顶部命令）并 nginx -s reload，否则反代会拒绝（413）。应用层已即时生效。</div>
+            </div>
+            <div class="file-card" style="padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+                <label style="font-size:13px;color:var(--dim);white-space:nowrap">每用户容量配额 (MB)</label>
+                <input type="number" id="maxUploadQuotaMbInput" min="0" style="width:140px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text)">
+                <button class="btn btn-save" id="saveQuotaBtn" onclick="saveQuota()">保存</button>
+                <span id="quotaHint" style="font-size:12px;color:var(--dim);display:none"></span>
+                <div style="font-size:11px;color:var(--dim);width:100%">提示：0 = 不设上限（默认关闭）。开启后，每个用户累计已存文件总大小不得超过此值。</div>
+            </div>
+            <div class="file-card" style="padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+                <label style="font-size:13px;color:var(--dim);white-space:nowrap">上传频控 (次/窗口)</label>
+                <input type="number" id="uploadRateInput" min="0" style="width:140px;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text)">
+                <button class="btn btn-save" id="saveRateBtn" onclick="saveRateLimit()">保存</button>
+                <span id="rateHint" style="font-size:12px;color:var(--dim);display:none"></span>
+                <div style="font-size:11px;color:var(--dim);width:100%">提示：0 = 关闭频控（默认）。开启后，同一用户在每个时间窗口内最多发起该次数的上传（窗口长度见服务端配置）。</div>
+            </div>
         </div>
 
         <!-- Non-admin fallback / placeholder -->
@@ -61,7 +78,6 @@
 <script src="/static/js/init.js"></script>
 <script>
     // ===== Settings page: standalone module navigation =====
-    function goHome() { window.location.href = 'index.html'; }
     function goUserCenter(tab) { window.location.href = 'users.html' + (tab ? ('?tab=' + tab) : ''); }
 
     // ==================== Site settings (admin only) ====================
@@ -74,10 +90,10 @@
                 var inp = document.getElementById('siteNameInput');
                 if (inp && d.name) inp.value = d.name;
             } else {
-                console.warn('loadSiteName failed:', res.status);
+                onSettingLoadFail(res.status);
             }
         } catch (e) {
-            console.warn('loadSiteName network error:', e);
+            toast('加载站点名称失败：网络错误', true);
         }
     }
 
@@ -98,12 +114,13 @@
             try { data = await res.json(); } catch (e) { data = {}; }
             if (res.ok && data && data.ok) {
                 try { setAppName(data.name || name); } catch (e) {}
-                toast(t('site_saved') || 'Saved');
+                var msg = (t('site_saved') || 'Saved');
+                if (data.persisted === false) msg += '（未持久化，重启后可能失效）';
+                toast(msg);
                 var hint = document.getElementById('siteSavedHint');
                 if (hint) { hint.style.display = 'block'; hint.textContent = (t('site_saved') || 'Saved'); }
             } else {
-                var msg = (data && (data.detail || data.message)) || (t('toast_failed') || 'Failed');
-                toast(msg, true);
+                onSettingSaveFail(res.status, data);
             }
         } catch (e) {
             var detail = (e && e.message) ? e.message : '';
@@ -113,15 +130,196 @@
         }
     }
 
+    // ==================== Max upload size (admin only) ====================
+    async function loadUploadLimit() {
+        if (authRole !== 'admin') return;
+        try {
+            var res = await fetch('/api/admin/setting/max_upload_size_mb', { headers: getAuthHeaders() });
+            if (res.ok) {
+                var d = await res.json();
+                var inp = document.getElementById('maxUploadMbInput');
+                if (inp && typeof d.value !== 'undefined') inp.value = d.value;
+            } else {
+                onSettingLoadFail(res.status);
+            }
+        } catch (e) {
+            toast('加载上传上限失败：网络错误', true);
+        }
+    }
+
+    async function saveUploadLimit() {
+        var inp = document.getElementById('maxUploadMbInput');
+        if (!inp) return;
+        var raw = (inp.value || '').trim();
+        if (!raw) { toast(t('fill_fields') || 'Fill all fields', true); return; }
+        var mb = parseInt(raw, 10);
+        if (isNaN(mb) || mb < 1) { toast('最小 1 MB', true); return; }
+        var btn = document.getElementById('saveUploadBtn');
+        if (btn) btn.disabled = true;
+        try {
+            var res = await fetch('/api/admin/setting/max_upload_size_mb', {
+                method: 'PUT',
+                headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()),
+                body: JSON.stringify({ value: mb })
+            });
+            var data = null;
+            try { data = await res.json(); } catch (e) { data = {}; }
+            if (res.ok && data && data.ok) {
+                var shown = (data.value != null) ? data.value : mb;
+                var msg = (t('upload_saved') || 'Saved') + '：' + shown + ' MB';
+                if (data.persisted === false) msg += '（未持久化，重启后可能失效）';
+                toast(msg);
+                var hint = document.getElementById('uploadLimitHint');
+                if (hint) { hint.style.display = 'inline'; hint.textContent = (t('upload_saved') || 'Saved'); }
+            } else {
+                onSettingSaveFail(res.status, data);
+            }
+        } catch (e) {
+            var detail = (e && e.message) ? e.message : '';
+            toast((t('net_error') || 'Network error') + (detail ? (': ' + detail) : ''), true);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    // ==================== Per-user quota (admin only) ====================
+    async function loadQuota() {
+        if (authRole !== 'admin') return;
+        try {
+            var res = await fetch('/api/admin/setting/max_user_upload_mb', { headers: getAuthHeaders() });
+            if (res.ok) {
+                var d = await res.json();
+                var inp = document.getElementById('maxUploadQuotaMbInput');
+                if (inp && typeof d.value !== 'undefined') inp.value = d.value;
+            } else { onSettingLoadFail(res.status); }
+        } catch (e) { toast('加载容量配额失败：网络错误', true); }
+    }
+
+    async function saveQuota() {
+        var inp = document.getElementById('maxUploadQuotaMbInput');
+        if (!inp) return;
+        var raw = (inp.value || '').trim();
+        if (!raw) { toast('请填写数值（0=关闭）', true); return; }
+        var mb = parseInt(raw, 10);
+        if (isNaN(mb) || mb < 0) { toast('数值需 ≥ 0', true); return; }
+        var btn = document.getElementById('saveQuotaBtn');
+        if (btn) btn.disabled = true;
+        try {
+            var res = await fetch('/api/admin/setting/max_user_upload_mb', {
+                method: 'PUT',
+                headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()),
+                body: JSON.stringify({ value: mb })
+            });
+            var data = null; try { data = await res.json(); } catch (e) { data = {}; }
+            if (res.ok && data && data.ok) {
+                var shown = (data.value != null) ? data.value : mb;
+                var msg = '配额已保存：' + shown + ' MB';
+                if (data.persisted === false) msg += '（未持久化，重启后可能失效）';
+                toast(msg);
+                var hint = document.getElementById('quotaHint');
+                if (hint) { hint.style.display = 'inline'; hint.textContent = '已保存'; }
+            } else {
+                onSettingSaveFail(res.status, data);
+            }
+        } catch (e) {
+            var detail = (e && e.message) ? e.message : '';
+            toast('网络错误' + (detail ? (': ' + detail) : ''), true);
+        } finally { if (btn) btn.disabled = false; }
+    }
+
+    // ==================== Upload rate limit (admin only) ====================
+    async function loadRateLimit() {
+        if (authRole !== 'admin') return;
+        try {
+            var res = await fetch('/api/admin/setting/upload_rate_limit', { headers: getAuthHeaders() });
+            if (res.ok) {
+                var d = await res.json();
+                var inp = document.getElementById('uploadRateInput');
+                if (inp && typeof d.value !== 'undefined') inp.value = d.value;
+            } else { onSettingLoadFail(res.status); }
+        } catch (e) { toast('加载上传频控失败：网络错误', true); }
+    }
+
+    async function saveRateLimit() {
+        var inp = document.getElementById('uploadRateInput');
+        if (!inp) return;
+        var raw = (inp.value || '').trim();
+        if (!raw) { toast('请填写数值（0=关闭）', true); return; }
+        var n = parseInt(raw, 10);
+        if (isNaN(n) || n < 0) { toast('数值需 ≥ 0', true); return; }
+        var btn = document.getElementById('saveRateBtn');
+        if (btn) btn.disabled = true;
+        try {
+            var res = await fetch('/api/admin/setting/upload_rate_limit', {
+                method: 'PUT',
+                headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()),
+                body: JSON.stringify({ value: n })
+            });
+            var data = null; try { data = await res.json(); } catch (e) { data = {}; }
+            if (res.ok && data && data.ok) {
+                var shown = (data.value != null) ? data.value : n;
+                var msg = '上传频控已保存：' + shown + ' 次/窗口';
+                if (data.persisted === false) msg += '（未持久化，重启后可能失效）';
+                toast(msg);
+                var hint = document.getElementById('rateHint');
+                if (hint) { hint.style.display = 'inline'; hint.textContent = '已保存'; }
+            } else {
+                onSettingSaveFail(res.status, data);
+            }
+        } catch (e) {
+            var detail = (e && e.message) ? e.message : '';
+            toast('网络错误' + (detail ? (': ' + detail) : ''), true);
+        } finally { if (btn) btn.disabled = false; }
+    }
+
+    // ----- Shared admin-settings helpers -----
+    function onSettingLoadFail(status) {
+        if (status === 401 || status === 403) {
+            toast('会话已过期或权限不足，请重新登录', true);
+            forceLogout('会话已过期，请重新登录');
+        } else {
+            toast('加载设置失败（HTTP ' + status + '）', true);
+        }
+    }
+
+    function onSettingSaveFail(status, data) {
+        if (status === 401 || status === 403) {
+            toast('会话已过期或权限不足，请重新登录', true);
+            forceLogout('会话已过期，请重新登录');
+        } else if (status === 404) {
+            toast('服务端未找到该设置项，请重启服务后重试', true);
+        } else {
+            var msg = (data && (data.detail || data.message)) || '保存失败';
+            toast(msg, true);
+        }
+    }
+
+    async function ensureAdminSession() {
+        if (authRole !== 'admin') return false;
+        try {
+            var res = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+            if (!res.ok) {
+                onSettingLoadFail(res.status);
+                return false;
+            }
+            return true;
+        } catch (e) {
+            toast('无法连接服务器，请确认服务已启动', true);
+            return false;
+        }
+    }
+
     // Show the site-settings editor only for admin accounts; everyone else
     // sees the generic "module under development" placeholder instead.
-    function setupSettingsView() {
+    async function setupSettingsView() {
         var isAdmin = (authRole === 'admin');
         var panelSite = document.getElementById('panelSite');
         var noSettings = document.getElementById('noSettingsMsg');
         if (panelSite) panelSite.style.display = isAdmin ? 'block' : 'none';
         if (noSettings) noSettings.style.display = isAdmin ? 'none' : 'block';
-        if (isAdmin) loadSiteName();
+        if (!isAdmin) return;
+        if (!await ensureAdminSession()) return;
+        loadSiteName(); loadUploadLimit(); loadQuota(); loadRateLimit();
     }
 
     // After login / on load, show the settings view.

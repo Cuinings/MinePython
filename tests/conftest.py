@@ -10,6 +10,8 @@ import os
 import tempfile
 from pathlib import Path
 
+import pytest
+
 _TEST_DB = os.path.join(tempfile.gettempdir(), "fileserver_pytest.db")
 for _f in (f"{_TEST_DB}", f"{_TEST_DB}-wal", f"{_TEST_DB}-shm"):
     if os.path.exists(_f):
@@ -34,4 +36,26 @@ _cfg.UPLOAD_DIR = _TEST_UPLOADS
 os.environ.setdefault("LOGIN_IP_MAX_FAILS", "100000")
 # Small batch-download file cap so the limit is cheap to trigger in a test.
 os.environ.setdefault("MAX_BATCH_DOWNLOAD_FILES", "5")
+
+
+@pytest.fixture(autouse=True)
+def _reset_upload_rate_limit():
+    """Isolate the in-memory per-user upload rate limiter between tests.
+
+    ``test_rate_setting`` (in test_upload_security.py) mutates the process-wide
+    ``config.UPLOAD_RATE_LIMIT`` global to a non-zero value and never restores
+    it, which would otherwise trip every later upload in the same process with
+    a 429 — spurious failures unrelated to the code under test. Reset it (and
+    the sliding-window counter) after each test so the suite is hermetic.
+    """
+    yield
+    import modules.user.config as _cfg
+
+    _cfg.UPLOAD_RATE_LIMIT = 0
+    try:
+        import modules.files.services.file_service as _fs
+
+        _fs._UPLOAD_COUNTS.clear()
+    except Exception:  # pragma: no cover - defensive
+        pass
 

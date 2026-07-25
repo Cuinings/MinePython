@@ -15,3 +15,15 @@ function csvCell(v) {
     if (/[",\n\r]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
     return v;
 }
+
+// 防抖：连续触发时只在最后一次后 wait 毫秒执行（P1 搜索防抖）。
+function debounce(fn, wait) {
+    var timer = null;
+    var wrapped = function () {
+        var ctx = this, args = arguments;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () { timer = null; fn.apply(ctx, args); }, wait);
+    };
+    wrapped.cancel = function () { if (timer) { clearTimeout(timer); timer = null; } };
+    return wrapped;
+}

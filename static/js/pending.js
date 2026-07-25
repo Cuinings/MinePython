@@ -17,7 +17,7 @@ async function checkPending() {
             var cnt = document.getElementById('pendingCount');
             var usr = document.getElementById('pendingUsers');
             if (cnt) cnt.textContent = (t('pending_alert') || 'New approvals') + ': ' + data.count;
-            if (usr) usr.textContent = data.users.map(function(u) { return u.username; }).join(', ');
+            if (usr) usr.textContent = data.users.map(function(u) { return u.nickname || u.username; }).join(', ');
         } else {
             bar.classList.remove('show');
         }

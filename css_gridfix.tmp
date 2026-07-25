@@ -22,11 +22,6 @@
     --hover-bg: rgba(88,166,255,.05);
     --hover-bg-strong: rgba(88,166,255,.10);
 
-    /* Page gutter tokens — single source for container padding AND
-       the glass header's negative margins (keeps them in sync). */
-    --page-pad-x: clamp(24px, 4vw, 64px);
-    --page-pad-y: 32px;
-
     /* Motion tokens — spring-like easing = the difference between
        "it moves" and "it moves expensively". */
     --ease-out: cubic-bezier(.16, 1, .3, 1);
@@ -40,9 +35,7 @@
     --shadow-md: 0 4px 14px rgba(0,0,0,.36), 0 2px 5px rgba(0,0,0,.26);
     --shadow-lg: 0 18px 50px rgba(0,0,0,.52), 0 6px 18px rgba(0,0,0,.36);
     /* Glass surface for sticky header / blurred overlays */
-    /* Glass tint is based on the PAGE bg (#0d1117), not the card color —
-       a card-tinted bar reads as a separate color "layer" on top of the page. */
-    --glass-bg: rgba(13,17,23,.78);
+    --glass-bg: rgba(22,27,34,.72);
 }
 body.light {
     --bg: #f6f8fa; --card: #ffffff; --border: #d0d7de;
@@ -54,7 +47,7 @@ body.light {
     --shadow-sm: 0 1px 2px rgba(140,149,159,.18), 0 1px 1px rgba(140,149,159,.1);
     --shadow-md: 0 4px 14px rgba(140,149,159,.22), 0 2px 5px rgba(140,149,159,.13);
     --shadow-lg: 0 18px 50px rgba(90,100,110,.24), 0 6px 18px rgba(90,100,110,.15);
-    --glass-bg: rgba(246,248,250,.78);
+    --glass-bg: rgba(255,255,255,.72);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -65,13 +58,11 @@ body {
 
 /* ======== Container types ======== */
 .login-container {
-    width: 100%; max-width: min(400px, 100%);
+    width: 100%; max-width: 400px;
     display: flex; flex-direction: column; justify-content: center;
     padding: 40px 20px; min-height: 100vh;
 }
-/* Full-bleed container: no fixed max-width — the layout is fluid and
-   the gutters scale with the viewport via --page-pad-x. */
-.app-container { width: 100%; padding: var(--page-pad-y) var(--page-pad-x); display: none; }
+.app-container { width: 100%; max-width: 960px; padding: 40px 20px; display: none; }
 .app-container.active { display: block; }
 
 /* ======== Login screen ======== */
@@ -174,7 +165,7 @@ body {
     align-items: stretch;
 }
 .home-card {
-    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
     padding: 36px 24px; text-align: center; cursor: pointer;
     border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--card);
     transition: transform var(--dur-base) var(--ease-out),
@@ -187,29 +178,22 @@ body {
     transform: translateY(-3px); box-shadow: var(--shadow-md);
 }
 .home-icon {
-    width: 56px; height: 56px; border-radius: var(--r-lg);
+    width: 64px; height: 64px; border-radius: var(--r-lg);
     display: flex; align-items: center; justify-content: center;
-    margin-bottom: 18px; color: var(--text);
-    /* One flat tint + border gives every icon the same silhouette */
-    background: var(--hover-bg-strong); border: 1px solid var(--border);
-    transition: color var(--dur-base) var(--ease-out),
-                background-color var(--dur-base) var(--ease-out),
-                border-color var(--dur-base) var(--ease-out),
-                transform var(--dur-base) var(--ease-out);
-}
-.home-icon svg {
-    width: 28px; height: 28px;
-    display: block;
-}
-.home-card:hover .home-icon {
-    color: var(--accent);
-    background: var(--hover-bg);
-    border-color: var(--accent);
+    font-size: 34px; margin-bottom: 18px;
+    background: linear-gradient(180deg, var(--hover-bg-strong), var(--hover-bg));
+    border: 1px solid var(--border);
 }
 .home-title {
     font-size: 18px; font-weight: 600; letter-spacing: -.01em;
-    margin-bottom: 0; color: var(--text);
+    margin-bottom: 8px; color: var(--text);
 }
+.home-desc {
+    font-size: 13px; color: var(--dim); line-height: 1.5;
+    min-height: 2.9em; max-width: 92%;
+}
+.home-title { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+.home-desc { font-size: 12px; color: var(--dim); line-height: 1.6; }
 
 /* ======== Category bar ======== */
 .cat-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -394,15 +378,6 @@ body {
 .badge-admin { background: rgba(163,113,247,.2); color: var(--purple); }
 .badge-pending { background: rgba(210,153,29,.2); color: #d2991d; }
 .badge-active { background: rgba(63,185,80,.15); color: var(--green); }
-
-/* ---- permission name tags (user info page) ---- */
-.perm-list { display: flex; flex-wrap: wrap; align-items: center; }
-.perm-tag {
-    display: inline-block; font-size: 11px; line-height: 1.5;
-    padding: 2px 9px; margin: 3px 6px 3px 0; border-radius: var(--r-xs);
-    background: rgba(96,165,250,.14); color: var(--accent);
-    border: 1px solid rgba(96,165,250,.28); white-space: nowrap;
-}
 .empty { text-align: center; color: var(--dim); padding: 48px 0; font-size: 13px; }
 
 /* ---- audit public page controls ---- */
@@ -475,7 +450,7 @@ body {
 .detail-preview video, .detail-preview audio { max-width: 100%; max-height: 280px; border-radius: var(--r-sm); }
 .detail-preview iframe { width: 100%; height: 280px; border: none; border-radius: var(--r-sm); background: #fff; }
 .detail-preview .icon { font-size: 80px; padding: 60px 0; }
-.detail-info { display: grid; grid-template-columns: max-content 1fr; gap: 10px 16px; font-size: 13px; }
+.detail-info { display: grid; grid-template-columns: 120px 1fr; gap: 10px 16px; font-size: 13px; }
 .detail-info .label { color: var(--dim); }
 .detail-info .value { color: var(--text); word-break: break-all; }
 .detail-actions { margin-top: 20px; display: flex; gap: 10px; }
@@ -515,10 +490,7 @@ body {
 .modal-overlay.show { display: flex; animation: overlay-in .16s ease; }
 .modal-card {
     background: var(--card); border: 1px solid var(--border);
-    border-radius: var(--r-lg); padding: 28px 32px;
-    /* Fluid at every viewport: never a fixed px width. Caps at 420 for
-       readability, shrinks with the viewport gutters below that. */
-    width: min(420px, calc(100vw - 2 * var(--page-pad-x)));
+    border-radius: var(--r-lg); padding: 28px 32px; width: 380px; max-width: 94%;
 }
 /* A — modal entrance: fade + subtle scale, triggered purely by .show
    (display semantics untouched, so modal.js delegation keeps working) */
@@ -593,7 +565,7 @@ body {
 }
 .uc-info-name { font-size: 16px; font-weight: 600; }
 .uc-info-handle { font-size: 12px; color: var(--dim); }
-.uc-info-rows { display: grid; grid-template-columns: max-content 1fr; gap: 10px 16px; font-size: 13px; }
+.uc-info-rows { display: grid; grid-template-columns: 96px 1fr; gap: 10px 16px; font-size: 13px; }
 .uc-info-rows .label { color: var(--dim); }
 .uc-info-rows .value { color: var(--text); word-break: break-all; }
 .uc-info-rows .value .badge { margin-left: 4px; }
@@ -831,12 +803,11 @@ body,
 }
 
 /* 2B — sticky glass header: content blurs as it scrolls underneath.
-   Negative margins cancel .app-container's padding (same tokens) so
-   the glass bar spans the full viewport width and pins to the top. */
+   Negative margins cancel .app-container's 40/20 padding so the glass
+   bar spans full container width and pins to the top. */
 .app-header {
     position: sticky; top: 0; z-index: 40;
-    margin: calc(-1 * var(--page-pad-y)) calc(-1 * var(--page-pad-x)) 12px;
-    padding: 14px var(--page-pad-x);
+    margin: -40px -20px 12px; padding: 14px 20px;
     background: var(--glass-bg);
     -webkit-backdrop-filter: blur(14px) saturate(1.4);
     backdrop-filter: blur(14px) saturate(1.4);
@@ -849,8 +820,11 @@ body,
     backdrop-filter: blur(4px);
 }
 
-/* Accent buttons stay a single flat accent color — gradients were
-   adding one more perceived color layer without earning it. */
+/* 2B — gradient accent buttons: soft top highlight over solid accent
+   (pure rgba overlay → zero color-function compat risk) */
+.login-card .btn-login, .modal-actions .btn-save, .scope-btn.active {
+    background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,0)), var(--accent);
+}
 
 /* Respect reduced-motion: also drop the lift/press transforms */
 @media (prefers-reduced-motion: reduce) {
@@ -871,41 +845,44 @@ body,
 /* Prevent iOS/Android landscape auto text inflation */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
+/* ---- Wide desktop: use the extra width ---- */
+@media (min-width: 1160px) {
+    .app-container { max-width: 1080px; }
+}
+
 /* ---- Tablet ---- */
 @media (max-width: 820px) {
-    /* audit-row keeps a fixed first col so the 5 columns stay aligned
-       across rows (data-table alignment); only the label width tightens. */
     .audit-row { grid-template-columns: 120px 1.1fr 1fr 1.4fr 1.2fr; }
-    /* .detail-info / .uc-info-rows are now max-content fluid — no override */
+    .detail-info { grid-template-columns: 100px 1fr; }
     .home-grid { grid-template-columns: repeat(2, 1fr); }
     .home-card { padding: 28px 22px; }
 }
 
 /* ---- Phone ---- */
 @media (max-width: 640px) {
-    /* Tighter gutters + iOS safe-area — header margins follow the
-       same tokens automatically, no second set of numbers to sync. */
-    :root {
-        --page-pad-x: max(14px, env(safe-area-inset-left));
-        --page-pad-y: 20px;
+    /* Container: tighter padding + iOS safe-area */
+    .app-container {
+        padding: 20px 14px;
+        padding-left: max(14px, env(safe-area-inset-left));
+        padding-right: max(14px, env(safe-area-inset-right));
     }
 
+    /* Sticky glass header: sync negative margins with new padding */
     .app-header {
         flex-direction: column; align-items: flex-start; gap: 8px;
-        padding-top: 10px; padding-bottom: 10px;
+        margin: -20px -14px 12px; padding: 10px 14px;
     }
     .header-right { flex-wrap: wrap; width: 100%; gap: 8px; }
 
-    /* Home cards: single column, horizontal icon layout.
-       Force 1 column — the base auto-fit grid would otherwise still
-       fit two 200px tracks at ~640px, contradicting the intent here. */
-    .home-grid { grid-template-columns: 1fr; gap: 12px; }
+    /* Home cards: single column, horizontal icon layout */
+    .home-grid { gap: 12px; }
     .home-card {
         flex-direction: row; align-items: center; justify-content: flex-start;
         padding: 18px 16px; text-align: left;
     }
     .home-icon { width: 48px; height: 48px; font-size: 24px; margin: 0 14px 0 0; }
-    .home-title { margin-bottom: 0; }
+    .home-title { margin-bottom: 4px; }
+    .home-desc { min-height: auto; }
 
     /* File rows: actions wrap horizontally under content */
     .file-actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-end; }
@@ -924,9 +901,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
     .uc-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
     .uc-tab { white-space: nowrap; }
 
-    /* Modal width is already fluid globally (min() formula) — only
-       tighten padding here, no second width to keep in sync. */
-    .modal-card { padding: 22px 20px; }
+    /* Modal: fill width gracefully, tighter padding */
+    .modal-card { width: min(380px, calc(100vw - 28px)); padding: 22px 20px; }
 
     /* Toast: full-width strip below safe-area */
     .toast {
@@ -946,7 +922,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 @media (max-width: 400px) {
     .login-card { padding: 26px 20px; }
     .login-card h1 { font-size: 22px; }
-    :root { --page-pad-y: 14px; }
+    .app-container { padding-top: 14px; }
+    .app-header { margin-top: -14px; }
     .modal-card { padding: 18px 16px; }
     .cat-tag { padding: 4px 11px; font-size: 12px; }
 }

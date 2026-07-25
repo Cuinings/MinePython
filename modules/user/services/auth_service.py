@@ -1,117 +1,241 @@
 # -*- coding: utf-8 -*-
-"""Auth / session business logic (ARCH-6).
+"""Auth / session business logic (ARCH-6, ARCH-9).
 
-Everything in here is HTTP-agnostic: token minting, expiry evaluation, session
-invalidation, expired-token purging, and the in-memory login brute-force
-state. The FastAPI ``Depends``/``Header`` helpers (``get_current_user``,
-``require_permission`` …) stay in :mod:`modules.user.auth` because they are part
-of the HTTP layer; they call into this module. Symbols reused by other routers
-(``authenticate_token``, ``purge_expired_tokens``) are re-exported from
-``modules.user.auth`` for backward compatibility.
+Everything in here is HTTP-agnostic: JWT access-token minting/decoding, refresh
+token lifecycle, session invalidation, expired-token purging, and the in-memory
+login brute-force state. The FastAPI ``Depends``/``Header`` helpers
+(``get_current_user``, ``require_permission`` …) stay in
+:mod:`modules.user.auth` because they are part of the HTTP layer; they call into
+this module. Symbols reused by other routers (``authenticate_token``,
+``purge_expired_tokens``) are re-exported from ``modules.user.auth`` for
+backward compatibility.
+
+ARCH-9 model:
+* **access token** — a short-lived, signed **JWT**. Verified by signature only
+  (:func:`authenticate_token` / :func:`decode_access_token`) — NO database hit —
+  which is what makes the hot path stateless and horizontally scalable.
+* **refresh token** — an opaque random string whose **SHA-256 hash** is stored
+  in the ``refresh_tokens`` table (replacing the old self-built ``tokens``
+  table). Consulted only on the infrequent /api/auth/refresh call, so logout /
+  password-change can still revoke sessions immediately.
 """
 
+import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import HTTPException
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 import modules.user.config as _cfg
 from modules.user.database import (
+    RefreshToken,
     SessionLocal,
-    SessionToken,
     User,
     get_permissions_for_role,
-    orm_to_dict,
 )
-from modules.user.utils import _audit_log, _hash_pw, _is_legacy_hash, _verify_pw
+from modules.user.utils import _audit_log, _hash_pw, _is_legacy_hash, _now_str, _verify_pw
 
 
 # ---------------------------------------------------------------------------
-# Token lifecycle
+# Access token (stateless JWT) — no DB, verified by signature
 # ---------------------------------------------------------------------------
-def mint_token(user: User, device: str | None = None) -> str:
-    """Create a fresh SessionToken row for ``user`` and return its token string."""
-    token = secrets.token_hex(32)
-    expires_at = ""
-    if _cfg.TOKEN_TTL_HOURS and _cfg.TOKEN_TTL_HOURS > 0:
-        expires_at = (
-            datetime.now(timezone.utc) + timedelta(hours=_cfg.TOKEN_TTL_HOURS)
-        ).strftime("%Y-%m-%d %H:%M:%S")
-    with SessionLocal() as db:
-        db.add(
-            SessionToken(
-                user_id=user.id, token=token, expires_at=expires_at, device=device
-            )
-        )
-        db.commit()
-    return token
+def _user_claims(user: User) -> dict:
+    """Build the identity claims embedded in an access JWT.
 
-
-def _expire_clause():
-    """Return a SQLAlchemy predicate that is True only for non-expired tokens.
-
-    Tokens with an empty ``expires_at`` (TTL disabled) are treated as eternal.
-    Must use ``or_()`` — a plain Python ``or`` on two ClauseElements silently
-    collapses to just the second operand (SQLAlchemy footgun).
+    These are what :func:`authenticate_token` reconstructs a user dict from, so
+    every field the app reads off ``user[...]`` in a guard/handler must live
+    here. Mutable-but-rarely-changing fields (nickname/role) are refreshed on
+    the next token refresh; endpoints needing live data (e.g. /me) re-read the DB.
     """
-    if not _cfg.TOKEN_TTL_HOURS or _cfg.TOKEN_TTL_HOURS <= 0:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "nickname": user.nickname,
+        "status": user.status,
+        "is_default": bool(getattr(user, "is_default", False)),
+    }
+
+
+def mint_access_token(user: User) -> tuple[str, int]:
+    """Sign a short-lived access JWT for ``user``. Returns ``(token, ttl_secs)``."""
+    ttl = max(1, _cfg.JWT_ACCESS_TTL_MINUTES) * 60
+    now = datetime.now(timezone.utc)
+    payload = {
+        **_user_claims(user),
+        "sub": str(user.id),
+        "type": "access",
+        "iss": _cfg.JWT_ISSUER,
+        "iat": now,
+        "exp": now + timedelta(seconds=ttl),
+        "jti": secrets.token_hex(8),
+    }
+    token = jwt.encode(payload, _cfg.JWT_SECRET, algorithm=_cfg.JWT_ALGORITHM)
+    # PyJWT<2 returned bytes; normalize to str for consistent transport.
+    if isinstance(token, bytes):
+        token = token.decode("utf-8")
+    return token, ttl
+
+
+def decode_access_token(raw_token: str | None) -> dict | None:
+    """Verify an access JWT by signature + expiry. Returns claims or None."""
+    if not raw_token:
         return None
-    return or_(
-        SessionToken.expires_at == "",
-        SessionToken.expires_at > func.datetime("now"),
+    try:
+        claims = jwt.decode(
+            raw_token,
+            _cfg.JWT_SECRET,
+            algorithms=[_cfg.JWT_ALGORITHM],
+            options={"require": ["exp"]},
+        )
+    except jwt.InvalidTokenError:
+        return None
+    if claims.get("type") != "access":
+        return None
+    return claims
+
+
+def authenticate_token(raw_token: str | None) -> dict | None:
+    """Resolve a raw access token to a user dict — STATELESS, no DB (ARCH-9).
+
+    Backward-compatible name: the file/download endpoints and the HTTP-layer
+    ``get_current_user`` still call this. It now verifies a JWT signature
+    instead of joining the tokens table, eliminating the per-request DB hit.
+    """
+    claims = decode_access_token(raw_token)
+    if not claims:
+        return None
+    return {
+        "id": claims.get("id"),
+        "username": claims.get("username"),
+        "role": claims.get("role"),
+        "nickname": claims.get("nickname", ""),
+        "status": claims.get("status", "active"),
+        "is_default": bool(claims.get("is_default", False)),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Refresh token (server-side, hashed) — the only persisted auth state
+# ---------------------------------------------------------------------------
+def _hash_refresh(raw_token: str) -> str:
+    """SHA-256 the raw refresh token for at-rest storage (never store raw)."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def mint_refresh_token(db: Session, user: User, device: str | None = None) -> str:
+    """Create a refresh_tokens row for ``user`` and return the RAW token string.
+
+    Only the hash is persisted; the raw value is returned to the client once.
+    """
+    raw = secrets.token_urlsafe(48)
+    expires_at = (
+        datetime.now() + timedelta(days=max(1, _cfg.JWT_REFRESH_TTL_DAYS))
+    ).strftime("%Y-%m-%d %H:%M:%S")
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            token_hash=_hash_refresh(raw),
+            expires_at=expires_at,
+            device=device or None,
+        )
     )
+    db.commit()
+    return raw
+
+
+def _find_valid_refresh(db: Session, raw_token: str) -> RefreshToken | None:
+    """Return the non-expired refresh row for ``raw_token``, or None."""
+    if not raw_token:
+        return None
+    row = db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw_token))
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    # expires_at is an ISO-ish local string ("YYYY-MM-DD HH:MM:SS"), which sorts
+    # lexicographically — so a plain string compare is a correct, cross-DB
+    # expiry check without any dialect-specific SQL date functions.
+    if row.expires_at and row.expires_at <= _now_str():
+        return None
+    return row
+
+
+def revoke_refresh_token(db: Session, raw_token: str) -> int:
+    """Delete a single refresh row (logout of one session). Returns rows removed."""
+    if not raw_token:
+        return 0
+    result = db.execute(
+        delete(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw_token))
+    )
+    db.commit()
+    return int(result.rowcount or 0)
+
+
+def refresh_session(db: Session, raw_refresh: str, device: str = "") -> dict:
+    """Exchange a valid refresh token for a new access token (with rotation).
+
+    Rotation: the presented refresh token is invalidated and a fresh one is
+    issued, so a leaked/replayed refresh token has a limited window. Raises
+    ``HTTPException(401)`` when the refresh token is missing/expired/revoked.
+    """
+    row = _find_valid_refresh(db, raw_refresh)
+    if row is None:
+        raise HTTPException(401, "Invalid or expired refresh token")
+    user = db.execute(select(User).where(User.id == row.user_id)).scalar_one_or_none()
+    if user is None or user.status != "active":
+        # Owner gone or no longer active — drop the row and reject.
+        db.execute(delete(RefreshToken).where(RefreshToken.id == row.id))
+        db.commit()
+        raise HTTPException(401, "Account is not active")
+
+    # Rotate: remove the used refresh token, mint a fresh pair.
+    db.execute(delete(RefreshToken).where(RefreshToken.id == row.id))
+    db.commit()
+    access, ttl = mint_access_token(user)
+    new_refresh = mint_refresh_token(db, user, device=device or row.device or "")
+    perms = sorted(get_permissions_for_role(user.role))
+    return {
+        "ok": True,
+        "token": access,            # back-compat alias
+        "access_token": access,
+        "refresh_token": new_refresh,
+        "expires_in": ttl,
+        "message": "Token refreshed",
+        "role": user.role,
+        "nickname": user.nickname,
+        "permissions": perms,
+        "is_default": bool(getattr(user, "is_default", False)),
+        "admin_username": _cfg.ADMIN_USERNAME,
+    }
 
 
 def purge_expired_tokens() -> int:
-    """Delete token rows whose ``expires_at`` is in the past (ARCH-3).
+    """Delete expired refresh_tokens rows (ARCH-3). Returns rows removed.
 
-    No-op when TTL is disabled (all tokens are eternal). Returns the number of
-    rows removed. Safe to call repeatedly (startup + periodic sweep).
+    Cross-DB: compares the stored local-time string against ``_now_str()`` via a
+    plain string comparison (the format sorts lexicographically), so no
+    SQLite-only ``datetime()`` SQL is used and it works on Postgres too.
     """
-    if not _cfg.TOKEN_TTL_HOURS or _cfg.TOKEN_TTL_HOURS <= 0:
-        return 0
+    now = _now_str()
     with SessionLocal() as db:
         result = db.execute(
-            delete(SessionToken).where(
-                SessionToken.expires_at != "",
-                SessionToken.expires_at <= func.datetime("now"),
+            delete(RefreshToken).where(
+                RefreshToken.expires_at != "",
+                RefreshToken.expires_at <= now,
             )
         )
         db.commit()
         return int(result.rowcount or 0)
 
 
-def authenticate_token(raw_token: str | None) -> dict | None:
-    """Resolve a raw token string to a user dict via the SessionToken table.
-
-    Validates: token exists, its owner is ``active``, and it has not expired.
-    """
-    if not raw_token:
-        return None
-    expire = _expire_clause()
-    with SessionLocal() as db:
-        stmt = (
-            select(User)
-            .join(SessionToken, SessionToken.user_id == User.id)
-            .where(SessionToken.token == raw_token, User.status == "active")
-        )
-        if expire is not None:
-            stmt = stmt.where(expire)
-        user = db.execute(stmt).scalar_one_or_none()
-    if not user:
-        return None
-    data = orm_to_dict(user)
-    data.pop("password", None)  # never expose the hash
-    data.pop("password_plain", None)  # never expose the recoverable copy
-    return data
-
-
 def invalidate_user_sessions(db: Session, user_id: int) -> None:
-    """Drop every session token for a user (forces re-login on all devices)."""
-    db.execute(delete(SessionToken).where(SessionToken.user_id == user_id))
+    """Drop every refresh token for a user (forces re-login on all devices)."""
+    db.execute(delete(RefreshToken).where(RefreshToken.user_id == user_id))
 
 
 def login_user(db: Session, username: str, password: str, ip: str, device: str = "") -> dict:
@@ -158,13 +282,18 @@ def login_user(db: Session, username: str, password: str, ip: str, device: str =
     user.last_login_ip = ip
     db.commit()
 
-    token = mint_token(user, device=device)
+    # ARCH-9: mint a stateless access JWT + a server-side (hashed) refresh token.
+    access, ttl = mint_access_token(user)
+    refresh = mint_refresh_token(db, user, device=device)
     _audit_log("login", user.username, user.username, ip)
 
     perms = sorted(get_permissions_for_role(user.role))
     return {
         "ok": True,
-        "token": token,
+        "token": access,            # back-compat alias (existing clients/tests)
+        "access_token": access,
+        "refresh_token": refresh,
+        "expires_in": ttl,
         "message": "Logged in",
         "role": user.role,
         "nickname": user.nickname,

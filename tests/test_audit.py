@@ -142,3 +142,82 @@ class TestAuditLogsPublic:
         assert data["logs"]
         for row in data["logs"]:
             assert row["username"] == a_name
+
+    def test_download_is_audited(self):
+        # A successful download must produce a `download` audit row attributed
+        # to the downloading user (closes the previously-untracked gap).
+        uname, token = _make_active_user("user")
+        client.post(
+            "/api/upload",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": (f"{uname}_dl.txt", b"x")},
+            data={"category": "auto"},
+        )
+        files = client.get(
+            "/api/files", headers={"Authorization": f"Bearer {token}"}
+        ).json().get("files", [])
+        assert files, "upload did not persist a file"
+        fp = files[-1]["filepath"]
+        # Download with the access token, exactly like the UI's downloadUrl().
+        dl = client.get(f"/api/download/{fp}?token={token}")
+        assert dl.status_code == 200, dl.text
+        # The download must now appear in this user's own audit log.
+        resp = client.get(
+            "/api/audit/logs?action=download",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        rows = resp.json()["logs"]
+        assert any(r["action"] == "download" and r["username"] == uname for r in rows), rows
+
+
+class TestAuditClear:
+    """Destructive clear endpoint (POST /api/admin/audit/clear)."""
+
+    def test_reviewer_cannot_clear(self):
+        # Clearing is admin-only (audit:purge); reviewers must be 403'd.
+        r_token = _make_active_user("reviewer")[1]
+        resp = client.post(
+            "/api/admin/audit/clear",
+            headers={"Authorization": f"Bearer {r_token}"},
+            json={"confirm": True},
+        )
+        assert resp.status_code == 403, resp.text
+
+    def test_clear_requires_confirm(self):
+        admin_token = _admin_token()
+        resp = client.post(
+            "/api/admin/audit/clear",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"confirm": False},
+        )
+        assert resp.status_code == 400, resp.text
+
+    def test_admin_can_clear_and_leaves_trail(self):
+        admin_token = _admin_token()
+        # Seed a couple of records first.
+        u_name, u_token = _make_active_user("user")
+        _seed_audit_for(u_name, u_token)
+        _seed_audit_for(u_name, u_token, "logout")
+        before = client.get(
+            "/api/audit/logs", headers={"Authorization": f"Bearer {admin_token}"}
+        ).json()["total"]
+        assert before >= 2
+
+        resp = client.post(
+            "/api/admin/audit/clear",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"confirm": True},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["cleared"] >= 2
+        assert data["cleared_by"] == "admin"
+
+        # After clearing, exactly ONE record survives: the audit_clear trail.
+        after = client.get(
+            "/api/audit/logs", headers={"Authorization": f"Bearer {admin_token}"}
+        ).json()
+        assert after["total"] == 1
+        assert after["logs"][0]["action"] == "audit_clear"
+        assert after["logs"][0]["username"] == "admin"

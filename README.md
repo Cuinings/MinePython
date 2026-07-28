@@ -2,7 +2,7 @@
 
 带用户系统与 RBAC 细粒度权限的本地文件管理、审计与 **APK 一键安装（WebUSB/ADB）** 平台 **MinePython**。
 
-后端基于 **FastAPI（ASGI）+ SQLAlchemy 2.0 + SQLite（WAL）**，落地 **Service 分层**、**Alembic 迁移**与一套 **安全基线**（argon2id 哈希、明文密码 Fernet 对称加密、登录限流、结构化日志、安全响应头）。代码按四个相互独立、可单进程启动的模块组织于 `modules/` 包：`user` / `files` / `audit` / `apidocs`。
+后端基于 **FastAPI（ASGI）+ SQLAlchemy 2.0 + SQLite（WAL）**，落地 **Service 分层**、**Alembic 迁移**与一套 **安全基线**（argon2id 哈希、明文密码 Fernet 对称加密、登录限流、结构化日志、安全响应头）。代码按多个相互独立、可单进程启动的模块组织于 `modules/` 包：`user` / `files` / `audit` / `apidocs` / `org`。
 
 支持：注册/登录、多角色权限、审批流、文件分类管理、批量操作、审计日志、文件预览、**通过浏览器把 APK 一键安装到 Android 设备**，以及中 / 英 / 俄三语 Web 界面与 Swagger 文档。
 
@@ -37,10 +37,11 @@
 | --- | --- |
 | 用户系统 | 注册 / 登录（支持昵称）/ JWT 认证（access + refresh）/ 首次强制改密 / 登出 / 改密 / 注销 / 资料更新（`/api/auth/me` PUT） |
 | 认证安全 | argon2id 密码哈希；明文密码经 Fernet 对称加密存储；登录失败账户锁 + IP 维度窗口节流（429）；默认口令首次强制改密 |
-| RBAC 权限 | **5 角色**（admin / reviewer / uploader / user / anonymous）× **12 权限码**，接口级鉴权 |
+| RBAC 权限 | **5 角色**（admin / reviewer / uploader / user / anonymous）× **18 权限码**（含 org / suggest 系列），接口级鉴权 |
 | 管理员面板 | 添加 / 编辑 / 删除用户、审批注册、批量创建、孤儿文件清理、站点名与上传上限在线调整 |
 | 审计日志 | 关键动作写入 `audit_log` 并捕获客户端 IP；独立页面 `audit.html` 查看（彩色标签 / 刷新 / 导出 CSV） |
 | 文件管理 | 上传 / 下载 / 删除 / 列表；批量上传、批量删除、批量下载（流式）；分类过滤 + 分页 + 文件名搜索；元数据追踪（上传者 / IP / 时间）；大文件上传进度条 |
+| 组织架构 | 部门树与成员的增删改查（CRUD）；所有登录用户可查看，仅管理员可编辑，全部变更写审计日志 |
 | 文件预览 | 后端 `/api/preview/{path}` 复用下载鉴权 + `Content-Disposition: inline` + Range；前端弹层预览 |
 | 分类管理 | 自动归类（扩展名→分类，规则可在 `ext_category` 表增删改）+ 手动分类 + 新建 / 删除分类 + 散落文件归位（`/organize`） |
 | 配额与限流 | 管理员可设**每用户存储配额**（MB）与**上传频率上限**（窗口内次数），均通过 `.env` 持久化 |
@@ -62,7 +63,7 @@
 - **配置**：集中于 `modules/user/config.py`（env 单一入口），支持 CORS、JWT、登录限流、上传上限/配额/限流、批量上下限、ADB、日志等旋钮
 - **迁移**：Alembic 跟踪 schema（`Base.metadata` 为单一真源）
 - **单进程模块化**：`user` / `files` / `audit` / `apidocs` 四个模块各自可独立启动（端口 8001–8004）；统一入口 `server.py` / `python -m modules` 把它们挂到同一应用（端口 8000）
-  - 依赖方向：`files → user`，`audit → user`；`user` 不依赖任何业务模块，故可被安全复用，无循环依赖
+  - 依赖方向：`files → user`，`audit → user`，`org → user`；`user` 不依赖任何业务模块，故可被安全复用，无循环依赖
 
 ---
 
@@ -82,11 +83,14 @@ MinePython/
 │   └── versions/
 │       ├── 0001_initial.py    # 基线：业务表（users/tokens/files/audit_log/roles/permissions/role_permissions）
 │       ├── 0002_ext_category.py  # 分类映射表 ext_category
-│       └── 0003_refresh_tokens.py  # ARCH-9：丢弃旧 tokens 表，新建 refresh_tokens（哈希存储）
+│       ├── 0003_refresh_tokens.py  # ARCH-9：丢弃旧 tokens 表，新建 refresh_tokens（哈希存储）
+│       ├── 0005_suggestions.py # 功能建议栏 suggestions 表
+│       ├── 0006_org.py          # 组织架构：org_departments（部门树）+ org_members（部门成员）
+│       └── 0007_org_member_unique_user.py  # 成员唯一归属：一人只能属于一个部门（user_id 唯一）
 ├── modules/                   # 后端包（单进程模块化：四个独立模块）
 │   ├── __init__.py
 │   ├── common.py              # 公共层：FastAPI 工厂、中间件（CORS/日志/安全头/docs 开关）、静态/页面、启动任务
-│   ├── combined.py            # 合并入口：把四模块挂到同一应用（端口 8000）
+│   ├── combined.py            # 合并入口：把各模块挂到同一应用（端口 8000）
 │   ├── user/                  # 基座模块：配置、数据库、RBAC、认证、用户/管理员控制台
 │   │   ├── config.py          # 配置常量（env 单一入口）
 │   │   ├── database.py        # ORM 模型、引擎、会话、迁移、RBAC 种子
@@ -111,6 +115,9 @@ MinePython/
 │   ├── audit/                 # 审计模块（依赖 user）
 │   │   ├── audit.py           # 审计日志查看（/api/audit/logs）
 │   │   └── __main__.py        # 独立启动（端口 8003）
+│   ├── org/                   # 组织架构模块（依赖 user）
+│   │   ├── org.py            # 部门树 / 成员 CRUD（/api/org/*）
+│   │   └── __init__.py        # 暴露 org_router
 │   └── apidocs/               # API 文档模块（独立文档门户）
 │       ├── __init__.py        # create_apidocs_app()：Swagger / ReDoc / /api 门户
 │       └── __main__.py        # 独立启动（端口 8004）
@@ -304,13 +311,13 @@ alembic upgrade head --sql             # 仅打印将执行的 SQL（离线审�
 
 | 角色 | 权限 |
 | --- | --- |
-| `admin` | **全部 12 项权限** |
-| `reviewer` | `file:list` `file:upload` `file:download` `file:delete_self` `file:adb_install` `user:read` `user:approve` `audit:view` `audit:view_self` |
-| `uploader` | `file:list` `file:upload` `file:download` `file:delete_self` `file:adb_install` `audit:view_self` |
-| `user` | 同 `uploader`（可上传/下载/删除本人文件 + ADB 安装 + 查看本人审计） |
+| `admin` | **全部权限（共 18 项，含 file / category / user / audit / adb / suggest / org 系列）** |
+| `reviewer` | `file:list` `file:upload` `file:download` `file:delete_self` `file:adb_install` `user:read` `user:approve` `audit:view` `audit:view_self` `suggest:submit` `suggest:view` `org:view` |
+| `uploader` | `file:list` `file:upload` `file:download` `file:delete_self` `file:adb_install` `audit:view_self` `suggest:submit` `org:view` |
+| `user` | 同 `uploader`（可上传/下载/删除本人文件 + ADB 安装 + 查看本人审计 + 查看组织架构） |
 | `anonymous` | `file:list` `file:download`（只读，无需登录；用于公开只读场景） |
 
-**12 个权限码**：
+**权限码一览（共 18 项）**：
 
 | 权限码 | 含义 |
 | --- | --- |
@@ -327,6 +334,11 @@ alembic upgrade head --sql             # 仅打印将执行的 SQL（离线审�
 | `audit:view` | 查看全部审计日志（管理员 / 审核员） |
 | `audit:view_self` | 查看本人审计记录（所有登录用户持有） |
 | `audit:purge` | 清空全部审计日志（仅管理员；清空后保留一条 `audit_clear` 留存记录） |
+| `suggest:submit` | 提交功能需求 / 建议（所有登录用户） |
+| `suggest:view` | 查看全部功能建议（管理员 / 审核员） |
+| `suggest:manage` | 处理功能建议：改状态 / 删除（管理员） |
+| `org:view` | 查看组织架构（部门与成员） |
+| `org:manage` | 管理组织架构：增删改部门 / 成员（管理员） |
 
 登录响应与 `/api/auth/me` 均返回当前用户的有效权限列表，便于前端按权限隐藏 UI。
 
@@ -412,6 +424,27 @@ alembic upgrade head --sql             # 仅打印将执行的 SQL（离线审�
 | POST | `/api/adb/disconnect` | `file:adb_install` | 断开某 WiFi 设备的 adb 连接 |
 
 > 详见 [第 10 节](#10-adb--webusb-一键安装)。
+
+### 组织架构（Organization）
+
+部门为自引用树（`parent_id` 为 `NULL` 即顶级部门），成员把 `users` 行关联到部门并带职位 `title`。**关系约定：部门 → 成员为一对多；每名成员只能归属一个部门**（`org_members.user_id` 唯一约束，迁移 `0007`），换部门通过「调岗」（PUT 更新 `department_id`）完成，而不是重复添加。删除部门会级联删除其子部门与成员；移动部门时后端拒绝形成环（不能挂到自身或其子孙下）。所有写操作写入审计日志。
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/api/org/users` | `org:view` | 候选用户列表（含 `department_id` / `department_name` / `member_id`，前端据此标注已分配用户——仍可选择以调岗） |
+| POST | `/api/org/departments` | `org:manage` | 新建部门 `{name, parent_id?, sort_order?, description?}`（`parent_id=0` 或省略表示顶级） |
+| GET | `/api/org/departments` | `org:view` | 部门扁平列表（含每部门直接成员数） |
+| GET | `/api/org/tree` | `org:view` | 嵌套部门树（含成员数） |
+| GET | `/api/org/departments/{id}` | `org:view` | 取单个部门 |
+| PUT | `/api/org/departments/{id}` | `org:manage` | 改名 / 移动 / 排序 / 改描述（仅更新请求体中出现的字段） |
+| DELETE | `/api/org/departments/{id}` | `org:manage` | 删除部门（级联子部门与成员） |
+| POST | `/api/org/members` | `org:manage` | 添加成员 `{department_id, user_id, title?}`；同部门重复添加幂等返回已有记录，**已在其他部门则自动调岗到所选部门**（返回 `transferred:true`，审计 `org_member_transfer`）。成员可调整至任意部门 |
+| GET | `/api/org/members` | `org:view` | 成员列表（`?department_id=&user_id=&search=` 过滤） |
+| GET | `/api/org/departments/{id}/members` | `org:view` | 某部门的成员 |
+| PUT | `/api/org/members/{id}` | `org:manage` | 修改成员职位 `title`，或传 `department_id` 调岗（同一条归属记录原地更新） |
+| DELETE | `/api/org/members/{id}` | `org:manage` | 移除成员 |
+
+> 前端入口：首页「组织架构」卡片或顶栏 🏢 按钮，路由 `#/org`（SPA 视图 `tpl-org` + `static/js/views/org.js`）。
 
 ### 页面与公共接口（静态）
 
@@ -607,7 +640,8 @@ CI（`.github/workflows/docker.yml`）在 `master` push / PR 与 `v*` tag 时运
 
 **已交付（功能完整，全套测试通过）：**
 
-- 认证 / RBAC（5 角色 12 权限）/ 审批流 / 用户管理
+- 认证 / RBAC（5 角色 18 权限）/ 审批流 / 用户管理
+- 组织架构（部门树 + 成员 CRUD，RBAC 守卫 + 审计留痕）
 - 文件管理（上传 / 下载 / 预览 / 批量 / 分页 / 搜索 / 进度条）
 - 分类管理（可配置扩展名映射）
 - **ADB 一键安装（WebUSB，USB + WiFi）**
@@ -731,4 +765,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ---
 
-> 文档版本对应代码：**MinePython v4.6.0**。如实现与本文有出入，以 `modules/` 下源码与 `.env.example` 为准。
+> 文档版本对应代码：**MinePython v4.7.3**。如实现与本文有出入，以 `modules/` 下源码与 `.env.example` 为准。
+
+### 已知问题：前端 JS 缓存导致「保存/操作无反应」或「列表不刷新」
+`index.html` 中全部 `/static/*.js`、`/static/*.css` 均已带版本缓存戳（`?v=4.7.3`）。若修改了前端脚本后出现「点击按钮没反应 / 行为停在旧版 / 调岗后成员列表仍显示在原部门」，无需手动清缓存——版本戳改变后浏览器会强制拉取新文件。此外，组织架构页所有读接口（`GET /api/org/*`）的请求侧已加 `cache: 'no-store'`，保证每次重新拉取的成员/部门列表都是最新数据，不会被浏览器 HTTP 缓存污染。若仍异常，请硬刷新（Ctrl/Cmd+Shift+R）。

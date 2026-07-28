@@ -2,8 +2,9 @@
 
 本文档面向 **Windows 11 + Docker Desktop（WSL2 后端）** 的部署场景，补充主 `README.md` 中过于简略的 Docker 章节，并标注**只在 Windows 上才会踩到的坑**。
 
-> 适用版本：MinePython（FastAPI + SQLAlchemy 2.0 + SQLite WAL）。
+> 适用版本：MinePython v4.7+（FastAPI + SQLAlchemy 2.0 + SQLite WAL，含文件管理 / 审计 / 组织架构 / 意见反馈模块）。
 > 本文档对应仓库已附带修复：`docker-compose.yml` 的 healthcheck 已从 `/docs` 改为 `/`（见文末「已修复项」）。
+> 版本升级说明：应用启动时会**自动执行 Alembic 迁移**（`upgrade head`），从旧版本升级只需 `docker compose up -d --build`，新表（如 `org_departments` / `org_members` / `suggestions`）会自动创建，无需手动操作数据库。
 
 ---
 

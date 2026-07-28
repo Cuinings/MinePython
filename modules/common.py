@@ -316,6 +316,20 @@ def create_app(
             "webadb_bundle_size": bundle_path.stat().st_size if bundle_path.exists() else 0,
         }
 
+    # Favicon — the browser auto-requests /favicon.ico on every page, so we
+    # serve a branded SVG to avoid a 404 in the console. An SVG favicon works in
+    # all modern browsers and covers index.html, login.html, files.html, etc.
+    @app.get("/favicon.ico")
+    async def favicon():
+        svg = STATIC_DIR / "favicon.svg"
+        if not svg.is_file():
+            return JSONResponse(status_code=404, content={"detail": "not found"})
+        return FileResponse(
+            str(svg),
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     # Main app shell at "/" and "/index.html"
     @app.get("/", response_class=HTMLResponse)
     @app.get("/index.html", response_class=HTMLResponse)

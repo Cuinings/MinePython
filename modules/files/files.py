@@ -28,6 +28,7 @@ from modules.user.config import (
     MAX_BATCH_DOWNLOAD_BYTES,
     MAX_BATCH_DOWNLOAD_FILES,
     MAX_UPLOAD_SIZE_BYTES,
+    MAX_USER_UPLOAD_BYTES,
     UPLOAD_DIR,
 )
 from modules.user.database import File as FileModel
@@ -81,6 +82,100 @@ async def list_files(
         result.append(d)
 
     return {"files": result, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/stats/home")
+async def home_stats(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Dashboard stats for the home view (any authenticated user).
+
+    Returns real numbers the home page renders: total files / total size,
+    the caller's own file count / size, the configured per-user quota (MB,
+    0 = disabled), the count of pending (awaiting-approval) registrations,
+    and the 6 most recently uploaded files. Kept as a single cheap aggregate
+    query so the home page can show a real dashboard without N round-trips.
+    """
+    if not user:
+        raise HTTPException(401, "Authentication required")
+
+    username = user["username"]
+    role = user["role"]
+
+    total_files = db.scalar(select(func.count()).select_from(FileModel)) or 0
+    total_size = db.scalar(select(func.coalesce(func.sum(FileModel.size), 0))) or 0
+    my_files = (
+        db.scalar(
+            select(func.count())
+            .select_from(FileModel)
+            .where(FileModel.uploaded_by == username)
+        )
+        or 0
+    )
+    my_size = (
+        db.scalar(
+            select(func.coalesce(func.sum(FileModel.size), 0))
+            .select_from(FileModel)
+            .where(FileModel.uploaded_by == username)
+        )
+        or 0
+    )
+
+    # Per-user quota (admin-configured, 0 = disabled). Reported to everyone so
+    # the storage bar can render even for non-admins subject to it.
+    quota_mb = MAX_USER_UPLOAD_BYTES // (1024 * 1024)
+
+    # Pending registrations — shown to approvers (admin / reviewer). It's only
+    # a count (no identities), so it's safe to compute for any caller.
+    pending_users = 0
+    if role in ("admin", "reviewer"):
+        pending_users = (
+            db.scalar(
+                select(func.count())
+                .select_from(User)
+                .where(User.status == "pending")
+            )
+            or 0
+        )
+
+    # 6 most recent files (same shape as /api/files rows).
+    rows = (
+        db.execute(
+            select(FileModel)
+            .order_by(FileModel.uploaded_at.desc())
+            .limit(6)
+        )
+        .scalars()
+        .all()
+    )
+    recent = []
+    if rows:
+        uploaders = {f.uploaded_by for f in rows if f.uploaded_by and f.uploaded_by != "anonymous"}
+        nick_map = {}
+        if uploaders:
+            nick_rows = db.execute(
+                select(User.username, User.nickname).where(User.username.in_(uploaders))
+            ).all()
+            nick_map = {u: (n or u) for u, n in nick_rows}
+        for f in rows:
+            d = orm_to_dict(f)
+            d["path"] = d["filepath"]
+            d["size_human"] = _format_size(d["size"])
+            uname = d.get("uploaded_by") or "anonymous"
+            d["uploader_nickname"] = nick_map.get(uname) or uname
+            recent.append(d)
+
+    return {
+        "ok": True,
+        "total_files": total_files,
+        "total_size": total_size,
+        "my_files": my_files,
+        "my_size": my_size,
+        "quota_mb": quota_mb,
+        "pending_users": pending_users,
+        "recent": recent,
+    }
 
 
 # Serialize the "quota check + insert + commit" DB section of /api/upload so

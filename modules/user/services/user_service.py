@@ -104,7 +104,7 @@ def create_user(db: Session, body: AdminUserRequest, ip: str) -> dict:
 
     nickname = (body.nickname or "").strip() or body.username
     role = body.role if body.role in ROLES else "user"
-    status = body.status if body.status in ("active", "pending", "rejected") else "active"
+    status = body.status if body.status in ("active", "pending", "rejected", "deactivated") else "active"
     db.add(
         User(
             username=body.username,
@@ -148,7 +148,7 @@ def update_user(db: Session, user_id: int, body: AdminUserRequest, ip: str) -> d
     if body.role and body.role in ROLES:
         user.role = body.role
 
-    if body.status and body.status in ("active", "pending", "rejected"):
+    if body.status and body.status in ("active", "pending", "rejected", "deactivated"):
         user.status = body.status
 
     db.commit()

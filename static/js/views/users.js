@@ -47,9 +47,11 @@ function renderMyProfile(d) {
     var initial = (d.nickname || d.username || '?').charAt(0).toUpperCase();
     var roleBadge = d.role === 'admin' ? '<span class="badge badge-admin">admin</span>'
         : d.role === 'reviewer' ? '<span class="badge badge-pending">reviewer</span>' : '';
-    var statusBadge = d.status === 'active' ? '<span class="badge badge-active">active</span>'
-        : d.status === 'pending' ? '<span class="badge badge-pending">pending</span>'
-        : '<span class="badge" style="color:var(--dim)">' + escHtml(d.status || '') + '</span>';
+    var statusBadge;
+    if (d.status === 'pending') statusBadge = '<span class="badge badge-pending">' + (t('pending') || 'pending') + '</span>';
+    else if (d.status === 'active') statusBadge = '<span class="badge badge-active">' + (t('active') || 'active') + '</span>';
+    else if (d.status === 'deactivated') statusBadge = '<span class="badge badge-deactivated">' + (t('deactivated') || 'deactivated') + '</span>';
+    else statusBadge = '<span class="badge" style="color:var(--dim)">' + escHtml(d.status || '') + '</span>';
     var permCodes = d.permissions || [];
     var permNames = d.permission_names || [];
     var permsHtml;
@@ -195,6 +197,8 @@ async function loadAdminUsers(retry) {
                 statusBadge = '<span class="badge badge-pending">' + (t('pending') || 'pending') + '</span>';
             } else if (u.status === 'active') {
                 statusBadge = '<span class="badge badge-active">' + (t('active') || 'active') + '</span>';
+            } else if (u.status === 'deactivated') {
+                statusBadge = '<span class="badge badge-deactivated">' + (t('deactivated') || 'deactivated') + '</span>';
             } else {
                 statusBadge = '<span class="badge" style="color:var(--dim)">' + u.status + '</span>';
             }

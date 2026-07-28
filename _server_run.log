@@ -1,10 +1,23 @@
-2026-07-23 12:28:33,676 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.schemas
-2026-07-23 12:28:33,676 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.tables
-2026-07-23 12:28:33,676 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.types
-2026-07-23 12:28:33,676 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.constraints
-2026-07-23 12:28:33,677 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.defaults
-2026-07-23 12:28:33,677 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.comments
+2026-07-28 07:07:32,737 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.schemas
+2026-07-28 07:07:32,739 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.tables
+2026-07-28 07:07:32,739 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.types
+2026-07-28 07:07:32,739 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.constraints
+2026-07-28 07:07:32,739 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.defaults
+2026-07-28 07:07:32,740 [INFO] alembic.runtime.plugins: setup plugin alembic.autogenerate.comments
 INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
 INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+
+  局域网服务 v4.7.0
+  ------------------------------
+  Web UI:     http://localhost:8000
+  API Home:   http://localhost:8000/api
+  Swagger:    http://localhost:8000/docs
+  Database:   C:\Users\Work\PycharmProjects\MinePython\server.db
+  Users:      2 registered
+  Files:      1 records
+  Storage:    C:\Users\Work\PycharmProjects\MinePython\uploads
+  TLS:        disabled (HTTP) — WebUSB needs HTTPS; set SSL_CERTFILE/SSL_KEYFILE
+  ------------------------------
+
 INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
 INFO  [alembic.runtime.migration] Will assume non-transactional DDL.

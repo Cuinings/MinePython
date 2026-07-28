@@ -12,7 +12,7 @@ from modules.files.cleanup import router as cleanup_router
 from modules.files.files import router as files_router
 from modules.user.config import APP_NAME as SERVICE_NAME
 
-SERVICE_VERSION = "4.6.0"
+from modules.version import VERSION as SERVICE_VERSION
 SERVICE_DESCRIPTION = (
     f"{SERVICE_NAME} 文件服务器模块 —— 提供文件上传/下载/管理、分类整理、孤儿清理等接口。"
     "依赖用户模块提供的认证与 RBAC。"

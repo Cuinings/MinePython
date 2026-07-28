@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from modules.common import create_app
 from modules.user.config import APP_NAME as SERVICE_NAME
 
-SERVICE_VERSION = "4.6.0"
+from modules.version import VERSION as SERVICE_VERSION
 SERVICE_DESCRIPTION = (
     f"{SERVICE_NAME} API 文档门户 —— 聚合各模块的 OpenAPI 文档，提供交互式 Swagger / ReDoc。"
 )

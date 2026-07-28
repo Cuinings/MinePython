@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-MinePython v4.6 — thin entry point.
+MinePython — thin entry point (version in modules/version.py).
 http://localhost:8000 for Web UI, /docs for Swagger.
 
 All application logic now lives in the modules/ package:
@@ -12,6 +12,7 @@ All application logic now lives in the modules/ package:
 """
 
 from modules.combined import app
+from modules.version import VERSION
 
 if __name__ == "__main__":
     import uvicorn
@@ -55,7 +56,7 @@ if __name__ == "__main__":
         user_count = db.scalar(select(func.count()).select_from(User)) or 0
         file_count = db.scalar(select(func.count()).select_from(File)) or 0
 
-    print(f"\n  {APP_NAME} v4.6")
+    print(f"\n  {APP_NAME} v{VERSION}")
     print(f"  {'-' * 30}")
     print(f"  Web UI:     {scheme}://localhost:{PORT}")
     print(f"  API Home:   {scheme}://localhost:{PORT}/api")

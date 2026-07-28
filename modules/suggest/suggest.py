@@ -87,7 +87,7 @@ async def create_suggestion(
     db.add(s)
     db.commit()
     db.refresh(s)
-    _audit_log("suggest_create", user["username"], title, _client_ip(request))
+    _audit_log("suggest_create", title, user["username"], _client_ip(request))
     return {"ok": True, "suggestion": _suggest_to_dict(db, s)}
 
 
@@ -176,8 +176,8 @@ async def update_suggestion(
     db.commit()
     _audit_log(
         "suggest_status",
-        user["username"],
         f"{s.title} [{old}→{body.status}]",
+        user["username"],
         _client_ip(request),
     )
     return {"ok": True, "suggestion": _suggest_to_dict(db, s)}
@@ -200,5 +200,5 @@ async def delete_suggestion(
     title = s.title
     db.delete(s)
     db.commit()
-    _audit_log("suggest_delete", user["username"], title, _client_ip(request))
+    _audit_log("suggest_delete", title, user["username"], _client_ip(request))
     return {"ok": True}

@@ -26,7 +26,9 @@ function initApp() {
         if (typeof onAppReady === 'function') onAppReady();
     } else {
         // No session at all — send the visitor to the standalone login page.
-        window.location.href = 'login.html';
+        // Use replace (not push) so a logged-out view cannot be re-entered via
+        // Back after navigating deeper into the SPA history.
+        window.location.replace('login.html');
     }
     if (typeof updateUploadHint === 'function') updateUploadHint();
 }

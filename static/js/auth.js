@@ -127,7 +127,9 @@ async function doLogin() {
                 // before the user can reach anything.
                 showForcePwChange();
             } else {
-                window.location.href = 'index.html';
+                // replace() drops the login page from history so the back
+                // button can't return to it after a successful login.
+                window.location.replace('index.html');
             }
         } else {
             showAuthError(errEl, data.message || data.detail || 'Error');
@@ -172,12 +174,14 @@ async function doRegister() {
             localStorage.setItem('fs_role', authRole);
             localStorage.setItem('fs_nick', authNick);
             localStorage.removeItem('fs_anon');
-            window.location.href = 'index.html';
+            // replace() so the register page is dropped from history on a
+            // successful auto-login — back button won't return to it.
+            window.location.replace('index.html');
         } else if (data.ok && !data.token) {
             // Pending admin approval: tell the user, then send them to login.
             clearAuthFields();
             showAuthError(errEl, t('pending_approval') || 'Registration submitted, pending admin approval', true);
-            setTimeout(function () { window.location.href = 'login.html'; }, 1800);
+            setTimeout(function () { window.location.replace('login.html'); }, 1800);
         } else {
             showAuthError(errEl, data.message || data.detail || 'Error');
         }
@@ -227,7 +231,9 @@ async function submitForcePwChange() {
             localStorage.removeItem('fs_anon');
             stopPendingPoll();
             // The auth page has no app screen — go to the app after the change.
-            window.location.href = 'index.html';
+            // replace() so the forced login/change screen is not in the back
+            // stack and the user can't return to it after landing in the app.
+            window.location.replace('index.html');
         } else {
             err.textContent = data.message || data.detail || '修改失败';
         }
@@ -261,11 +267,67 @@ function doLogout() {
             });
         } catch (e) {}
     }
-    showLogin();
+    // Use replace (not push) so the app page is wiped from the history stack:
+    // after logout, pressing Back cannot return to any in-app page.
+    window.location.replace('login.html');
 }
 
-// Called when the server rejects the current token (401). Clears local state
-// and returns to the login screen instead of showing a misleading message.
+// Global "session expired / must re-login" modal. Called by forceLogout so the
+// user gets a clear, non-jarring interaction instead of a silent hard redirect
+// to the login page. The current page stays visible behind the overlay until
+// the user clicks "重新登录".
+function showSessionExpiredModal(reason) {
+    if (document.getElementById('sessionExpiredModal')) return;  // dedupe
+    var overlay = document.createElement('div');
+    overlay.id = 'sessionExpiredModal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);' +
+        'display:flex;align-items:center;justify-content:center;z-index:99999;';
+    var title = t('session_expired_title') || '登录已失效';
+    var msg = reason || (t('session_expired_msg') || '您的登录状态已过期，请重新登录以继续。');
+    var btnLabel = t('relogin') || '重新登录';
+    overlay.innerHTML =
+        '<div style="width:360px;max-width:92%;background:var(--card);color:var(--text);' +
+        'border:1px solid var(--border);border-radius:var(--r-md,12px);padding:24px;' +
+        'box-shadow:0 12px 40px rgba(0,0,0,.35);text-align:center;">' +
+        '<div style="font-size:34px;line-height:1;margin-bottom:10px;">🔒</div>' +
+        '<h3 style="margin:0 0 10px;font-size:17px;">' + title + '</h3>' +
+        '<p style="margin:0 0 12px;font-size:13px;color:var(--dim);line-height:1.6;">' + msg + '</p>' +
+        '<div id="seCountdown" style="font-size:12px;color:var(--dim);margin-bottom:16px;min-height:16px;"></div>' +
+        '<button id="seReloginBtn" style="width:100%;padding:11px;background:var(--accent);' +
+        'color:#fff;border:none;border-radius:var(--r-sm,8px);cursor:pointer;font-size:14px;">' +
+        btnLabel + '</button>' +
+        '</div>';
+    document.body.appendChild(overlay);
+    // Auto-redirect to login after a short countdown; the button is always
+    // available for an immediate jump. Clearing the interval on click avoids a
+    // second navigation after the manual one.
+    var secs = 5;
+    var cd = document.getElementById('seCountdown');
+    function tick() {
+        if (cd) cd.textContent = (t('relogin_auto') || '将在 {n} 秒后自动跳转').replace('{n}', secs);
+    }
+    tick();
+    var timer = setInterval(function () {
+        secs -= 1;
+        if (secs <= 0) {
+            clearInterval(timer);
+            showLogin();
+        } else {
+            tick();
+        }
+    }, 1000);
+    var btn = document.getElementById('seReloginBtn');
+    if (btn) btn.addEventListener('click', function () {
+        clearInterval(timer);
+        showLogin();
+    });
+}
+
+// Called when the server rejects the current token (401), the refresh token is
+// dead, or the account was force-changed/deactivated. Clears local state and
+// shows a clear "session expired" interaction instead of a silent hard redirect
+// (the old code wrote the message onto the page being unloaded, so the user
+// never saw it) or a silent 401 leak to the caller.
 function forceLogout(reason) {
     authToken = ''; authUser = ''; authRole = ''; authNick = ''; authIsDefault = false; authRefresh = ''; authPerms = [];
     localStorage.removeItem('fs_token');
@@ -276,12 +338,7 @@ function forceLogout(reason) {
     localStorage.removeItem('fs_refresh');
     localStorage.removeItem('fs_anon');
     stopPendingPoll();
-    showLogin();
-    var errEl = document.getElementById('loginError');
-    if (errEl) {
-        errEl.textContent = reason || (t('login_required') || 'Session expired, please log in again');
-        errEl.style.display = 'block';
-    }
+    showSessionExpiredModal(reason);
 }
 
 // Enter-to-submit is wired per page (login.html / register.html) so each
@@ -370,16 +427,24 @@ function downloadUrl(path) {
 
         var resp = await _nativeFetch(input, init);
 
-        if (resp.status === 401 && authRefresh) {
-            // Only attempt one silent renewal to avoid refresh storms.
-            var newTok = await _silentRefresh();
-            if (newTok) {
-                headers.set('Authorization', 'Bearer ' + newTok);
-                init.headers = headers;
-                resp = await _nativeFetch(input, init);
+        if (resp.status === 401) {
+            if (authRefresh) {
+                // Only attempt one silent renewal to avoid refresh storms.
+                var newTok = await _silentRefresh();
+                if (newTok) {
+                    headers.set('Authorization', 'Bearer ' + newTok);
+                    init.headers = headers;
+                    resp = await _nativeFetch(input, init);
+                } else {
+                    // Refresh failed — the session is dead; surface it.
+                    forceLogout(t('session_expired_msg') || '登录已失效，请重新登录');
+                }
             } else {
-                // Refresh failed — the session is dead; bounce to login.
-                forceLogout();
+                // No refresh token (e.g. httpOnly cookie lost / anonymous edge):
+                // previously this fell through and leaked a raw 401 to the
+                // caller, leaving the page to fail silently. Treat the session
+                // as dead and prompt re-login.
+                forceLogout(t('session_expired_msg') || '登录已失效，请重新登录');
             }
         }
         return resp;

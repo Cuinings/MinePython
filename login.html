@@ -53,9 +53,10 @@
     applyI18n();
     updateLangBtn();
 
-    // Already signed in? Skip the login page entirely.
+    // Already signed in? Skip the login page entirely. Use replace() so the
+    // login page is dropped from history and the back button can't return to it.
     if (authToken && authRole !== 'anonymous') {
-        window.location.href = 'index.html';
+        window.location.replace('index.html');
     }
 
     // Enter key submits the login form.

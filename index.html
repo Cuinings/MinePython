@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
     <title data-i18n="title">MinePython</title>
     <!-- importmap: keeps the WebUSB (ya-webadb 2.x) dynamic import resolving
          the same way it did on files.html. Harmless if unused. -->
@@ -33,7 +34,7 @@
       }
     }
     </script>
-    <link rel="stylesheet" href="/static/common.css">
+    <link rel="stylesheet" href="/static/common.css?v=4.7.9">
 </head>
 <body>
 
@@ -72,28 +73,89 @@
      The legacy *.html pages remain as deep-link fallbacks (zero regression).
      ===================================================================== -->
 
-<!-- ===== HOME ===== -->
+<!-- ===== HOME (Dashboard) ===== -->
 <template id="tpl-home">
     <div id="viewHome">
-        <div class="home-wrap">
-            <div class="home-grid">
-                <div class="home-card" role="button" tabindex="0" onclick="goFiles()">
-                    <div class="home-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
-                    <div class="home-title" data-i18n="nav_files">文件管理</div>
+        <div class="home-dash">
+
+            <!-- Hero 欢迎条 -->
+            <section class="hd-hero">
+                <div class="hd-avatar" id="hdAvatar">·</div>
+                <div class="hd-hero-main">
+                    <div class="hd-greet"><span id="hdGreet">…</span></div>
+                    <div class="hd-sub">
+                        <span class="role-badge" id="hdRole">—</span>
+                        <span id="hdLastIp"></span>
+                    </div>
+                    <div class="hd-storage" id="hdStorage">
+                        <div class="hd-skel hd-skel-line" style="width:240px;height:14px"></div>
+                    </div>
                 </div>
-                <div class="home-card" id="homeAuditCard" role="button" tabindex="0" onclick="goAudit()" style="display:none">
-                    <div class="home-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 12 15 16 10"/></svg></div>
-                    <div class="home-title" data-i18n="nav_audit">审计日志</div>
+                <div class="hd-actions">
+                    <button class="btn btn-primary" onclick="goFiles()">⬆️ <span data-i18n="upload_entry">上传文件</span></button>
+                    <button class="btn" id="hdSearchBtn" type="button"><span>🔍</span> <span data-i18n="home_search">搜索</span></button>
                 </div>
-                <div class="home-card" role="button" tabindex="0" onclick="goSettings()">
-                    <div class="home-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-                    <div class="home-title" data-i18n="settings">设置</div>
+            </section>
+
+            <!-- 指标卡 -->
+            <section class="hd-stats" id="hdStats">
+                <div class="hd-skel hd-stat"></div>
+                <div class="hd-skel hd-stat"></div>
+                <div class="hd-skel hd-stat"></div>
+                <div class="hd-skel hd-stat"></div>
+            </section>
+
+            <!-- 工作区 -->
+            <div class="hd-group-title" data-i18n="home_group_workspace">工作区</div>
+            <section class="hd-modules" id="hdGroupWorkspace">
+                <div class="hd-mod" data-perm="file:list" role="button" tabindex="0" onclick="goFiles()">
+                    <div class="hd-mod-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+                    <div class="hd-mod-body"><div class="hd-mod-title" data-i18n="nav_files">文件管理</div><div class="hd-mod-desc" data-i18n="home_mod_desc_files">上传 / 下载 / 预览 / 批量操作</div></div>
                 </div>
-                <div class="home-card" role="button" tabindex="0" onclick="goApi()">
-                    <div class="home-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M9 8V2"/><path d="M15 8a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3h6z"/></svg></div>
-                    <div class="home-title">API 文档</div>
+                <div class="hd-mod" data-perm="org:view" role="button" tabindex="0" onclick="goOrg()">
+                    <div class="hd-mod-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/></svg></div>
+                    <div class="hd-mod-body"><div class="hd-mod-title" data-i18n="nav_org">组织架构</div><div class="hd-mod-desc" data-i18n="home_mod_desc_org">部门树与成员管理</div></div>
                 </div>
-            </div>
+            </section>
+
+            <!-- 管理后台（按权限显隐） -->
+            <div class="hd-group-title hd-group-admin" data-i18n="home_group_admin">管理后台</div>
+            <section class="hd-modules hd-group-admin" id="hdGroupAdmin">
+                <div class="hd-mod" data-perm="user:read" role="button" tabindex="0" onclick="goUserCenter('usermgmt')">
+                    <div class="hd-mod-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+                    <div class="hd-mod-body"><div class="hd-mod-title" data-i18n="nav_users">用户管理</div><div class="hd-mod-desc" data-i18n="home_mod_desc_users">账号 CRUD · 审批 · 批量创建</div></div>
+                </div>
+                <div class="hd-mod" data-perm="audit:view" role="button" tabindex="0" onclick="goAudit()">
+                    <div class="hd-mod-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 12 15 16 10"/></svg></div>
+                    <div class="hd-mod-body"><div class="hd-mod-title" data-i18n="nav_audit">审计日志</div><div class="hd-mod-desc" data-i18n="home_mod_desc_audit">关键操作留痕 · 导出 CSV</div></div>
+                </div>
+                <div class="hd-mod" data-role="admin" role="button" tabindex="0" onclick="goSettings()">
+                    <div class="hd-mod-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+                    <div class="hd-mod-body"><div class="hd-mod-title" data-i18n="settings">设置</div><div class="hd-mod-desc" data-i18n="home_mod_desc_settings">站点名 · 上限 · 配额 · 限流</div></div>
+                </div>
+            </section>
+
+            <!-- 系统 / 帮助 -->
+            <div class="hd-group-title" data-i18n="home_group_system">系统 / 帮助</div>
+            <section class="hd-modules">
+                <div class="hd-mod" role="button" tabindex="0" onclick="goApi()">
+                    <div class="hd-mod-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M9 8V2"/><path d="M15 8a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3h6z"/></svg></div>
+                    <div class="hd-mod-body"><div class="hd-mod-title" data-i18n="home_nav_api">API 文档</div><div class="hd-mod-desc" data-i18n="home_mod_desc_api">Swagger / ReDoc 交互测试</div></div>
+                </div>
+                <div class="hd-mod" role="button" tabindex="0" onclick="goSuggest()">
+                    <div class="hd-mod-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg></div>
+                    <div class="hd-mod-body"><div class="hd-mod-title" data-i18n="nav_suggest">建议</div><div class="hd-mod-desc" data-i18n="home_mod_desc_suggest">提需求 · 看进度</div></div>
+                </div>
+            </section>
+
+            <!-- 近期文件 -->
+            <div class="hd-group-title" data-i18n="home_recent">近期文件</div>
+            <section class="hd-recent" id="hdRecent">
+                <div class="hd-skel hd-rec"></div>
+                <div class="hd-skel hd-rec"></div>
+                <div class="hd-skel hd-rec"></div>
+            </section>
+
         </div>
     </div>
 </template>
@@ -256,10 +318,11 @@
                 <option value="admin">admin</option>
             </select>
             <label data-i18n="status_label">状态</label>
-            <select id="modalStatus">
-                <option value="active">active</option>
-                <option value="pending">pending</option>
-            </select>
+        <select id="modalStatus">
+            <option value="active">active</option>
+            <option value="pending">pending</option>
+            <option value="deactivated" data-i18n="deactivated">已注销</option>
+        </select>
             <div class="modal-actions">
                 <button class="btn btn-cancel" onclick="closeUserModal()" data-i18n="btn_cancel">取消</button>
                 <button class="btn btn-save" onclick="saveUser()" id="modalSaveBtn" data-i18n="btn_save">保存</button>
@@ -383,47 +446,151 @@
         </div>
 
         <!-- Submission form -->
-        <div class="file-card" style="padding:14px;margin-bottom:16px">
-            <div class="section-header" style="margin-bottom:10px">
+        <div class="sg-form-card">
+            <div class="section-header sg-form-head">
                 <h3 data-i18n="suggest_form">提交新建议</h3>
             </div>
-            <label data-i18n="suggest_title_ph" style="font-size:13px;color:var(--dim)">标题</label>
-            <input type="text" id="suggestTitle" maxlength="120" data-i18n-placeholder="suggest_title_ph" placeholder="一句话描述你的建议" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text);margin:4px 0 10px">
-            <label data-i18n="suggest_category" style="font-size:13px;color:var(--dim)">分类</label>
-            <select id="suggestCategory" style="padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text);margin:4px 0 10px;width:100%">
-                <option value="feature" data-i18n="suggest_cat_feature">功能新增</option>
-                <option value="ux" data-i18n="suggest_cat_ux">体验优化</option>
-                <option value="bug" data-i18n="suggest_cat_bug">Bug 反馈</option>
-                <option value="other" data-i18n="suggest_cat_other">其他</option>
-            </select>
-            <label data-i18n="suggest_body" style="font-size:13px;color:var(--dim)">详细描述</label>
-            <textarea id="suggestBody" rows="4" data-i18n-placeholder="suggest_body_ph" placeholder="补充背景、预期效果…" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg);color:var(--text);margin:4px 0 10px;resize:vertical"></textarea>
+
+            <div class="sg-form-grid">
+                <div class="sg-field">
+                    <label class="sg-label" for="suggestTitle" data-i18n="suggest_title_ph">标题</label>
+                    <input class="sg-input" type="text" id="suggestTitle" maxlength="120" data-i18n-placeholder="suggest_title_ph" placeholder="一句话描述你的建议">
+                </div>
+                <div class="sg-field">
+                    <label class="sg-label" data-i18n="suggest_category">分类</label>
+                    <div class="sg-seg" id="suggestCategory" role="radiogroup" aria-label="分类">
+                        <button type="button" class="sg-seg-btn active" data-val="feature" onclick="setSuggestCat('feature')" data-i18n="suggest_cat_feature">功能新增</button>
+                        <button type="button" class="sg-seg-btn" data-val="ux" onclick="setSuggestCat('ux')" data-i18n="suggest_cat_ux">体验优化</button>
+                        <button type="button" class="sg-seg-btn" data-val="bug" onclick="setSuggestCat('bug')" data-i18n="suggest_cat_bug">Bug 反馈</button>
+                        <button type="button" class="sg-seg-btn" data-val="other" onclick="setSuggestCat('other')" data-i18n="suggest_cat_other">其他</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sg-field">
+                <label class="sg-label" for="suggestBody" data-i18n="suggest_body">详细描述</label>
+                <textarea class="sg-input sg-textarea" id="suggestBody" rows="4" data-i18n-placeholder="suggest_body_ph" placeholder="补充背景、预期效果…"></textarea>
+            </div>
+
             <div class="error" id="suggestErr" style="display:none"></div>
-            <button class="btn btn-save" onclick="submitSuggestion()" data-i18n="suggest_submit">提交建议</button>
+            <button class="sg-submit" onclick="submitSuggestion()" data-i18n="suggest_submit">提交建议</button>
         </div>
 
+        <div class="sg-stats" id="suggestStats"></div>
         <div class="file-list" id="suggestList">
             <div class="center-loading"><div class="spinner"></div></div>
         </div>
     </div>
 </template>
 
+<!-- ===== ORG (组织架构) ===== -->
+<template id="tpl-org">
+    <div id="viewOrg">
+        <div class="section-header">
+            <h2 data-i18n="org_title">组织架构</h2>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input id="orgSearch" class="audit-filter-input" data-i18n-placeholder="org_search_ph" placeholder="搜索部门 / 成员…" onkeydown="if(event.key==='Enter')orgSearch()">
+                <button class="btn btn-xs" onclick="orgSearch()" style="color:var(--accent);border-color:var(--accent)" data-i18n="audit_refresh">刷新</button>
+            </div>
+        </div>
+
+        <div class="org-layout" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+            <!-- Left: department tree -->
+            <div class="org-tree-panel" style="flex:1 1 320px;min-width:300px">
+                <div class="section-header" style="margin-bottom:8px">
+                    <h3 data-i18n="org_tree">部门</h3>
+                    <button id="orgAddDeptBtn" class="btn btn-xs" onclick="openDeptModal()" style="color:var(--accent);border-color:var(--accent);display:none" data-i18n="org_add_dept">+ 新建部门</button>
+                </div>
+                <div class="file-list" id="orgTree" style="max-height:60vh;overflow:auto">
+                    <div class="center-loading"><div class="spinner"></div></div>
+                </div>
+            </div>
+
+            <!-- Right: members of selected department -->
+            <div class="org-members-panel" style="flex:1 1 360px;min-width:300px">
+                <div class="section-header" style="margin-bottom:8px">
+                    <h3><span data-i18n="org_members">成员</span> · <span id="orgCurDeptName" style="color:var(--dim)">—</span></h3>
+                    <button id="orgAddMemberBtn" class="btn btn-xs" onclick="openMemberModal()" style="color:var(--accent);border-color:var(--accent);display:none" data-i18n="org_add_member">+ 添加成员</button>
+                </div>
+                <div class="file-list" id="orgMembers" style="max-height:60vh;overflow:auto">
+                    <div class="empty" data-i18n="org_pick_dept">请选择左侧部门查看成员</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Create / Edit department -->
+        <div class="modal-overlay" id="orgDeptModal" data-close="closeOrgDeptModal">
+            <div class="modal-card">
+                <h2 id="orgDeptModalTitle" data-i18n="org_add_dept">新建部门</h2>
+                <div class="error" id="orgDeptErr" style="display:none"></div>
+                <label data-i18n="org_dept_name">部门名称</label>
+                <input type="text" id="orgDeptName" maxlength="120" data-i18n-placeholder="org_dept_name" placeholder="部门名称">
+                <label data-i18n="org_parent">上级部门</label>
+                <select id="orgDeptParent">
+                    <option value="0" data-i18n="org_root">（顶级部门）</option>
+                </select>
+                <label data-i18n="org_sort">排序</label>
+                <input type="number" id="orgDeptSort" value="0" min="0">
+                <label data-i18n="org_description">描述</label>
+                <textarea id="orgDeptDesc" rows="3" data-i18n-placeholder="org_description" placeholder="部门描述（可选）" style="resize:vertical"></textarea>
+                <div class="modal-actions">
+                    <button class="btn btn-cancel" onclick="closeOrgDeptModal()" data-i18n="btn_cancel">取消</button>
+                    <button class="btn btn-save" onclick="saveDept()" id="orgDeptSaveBtn" data-i18n="btn_save">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Add member -->
+        <div class="modal-overlay" id="orgMemberModal" data-close="closeOrgMemberModal">
+            <div class="modal-card">
+                <h2 data-i18n="org_add_member">添加成员</h2>
+                <div class="error" id="orgMemberErr" style="display:none"></div>
+                <div style="font-size:12px;color:var(--dim);margin-bottom:8px" data-i18n="org_one_dept_hint">一名成员只能属于一个部门；已分配的用户会标注所在部门，选中后保存即调岗</div>
+                <label data-i18n="org_user">用户</label>
+                <select id="orgMemberUser"></select>
+                <label data-i18n="org_member_title">职位</label>
+                <input type="text" id="orgMemberTitle" maxlength="120" data-i18n-placeholder="org_member_title" placeholder="如：经理 / 工程师（可选）">
+                <div class="modal-actions">
+                    <button class="btn btn-cancel" onclick="closeOrgMemberModal()" data-i18n="btn_cancel">取消</button>
+                    <button class="btn btn-save" onclick="addMember()" data-i18n="btn_save">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Transfer member (调岗) -->
+        <div class="modal-overlay" id="orgTransferModal" data-close="closeOrgTransferModal">
+            <div class="modal-card">
+                <h2 data-i18n="org_transfer_title">成员调岗</h2>
+                <div class="error" id="orgTransferErr" style="display:none"></div>
+                <div id="orgTransferWho" style="font-size:13px;color:var(--dim);margin-bottom:8px"></div>
+                <label data-i18n="org_transfer_target">目标部门</label>
+                <select id="orgTransferDept"></select>
+                <div class="modal-actions">
+                    <button class="btn btn-cancel" onclick="closeOrgTransferModal()" data-i18n="btn_cancel">取消</button>
+                    <button class="btn btn-save" onclick="saveTransfer()" data-i18n="btn_save">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
 <!-- ===================== SCRIPTS ===================== -->
-<script src="/static/js/util.js"></script>
-<script src="/static/js/i18n.js"></script>
-<script src="/static/js/theme.js"></script>
-<script src="/static/js/toast.js"></script>
-<script src="/static/js/auth.js"></script>
-<script src="/static/js/pending.js"></script>
-<script src="/static/js/modal.js"></script>
-<script src="/static/js/init.js"></script>
-<script src="/static/js/shell.js"></script>
-<script src="/static/js/views/home.js"></script>
-<script src="/static/js/views/files.js"></script>
-<script src="/static/js/views/users.js"></script>
-<script src="/static/js/views/audit.js"></script>
-<script src="/static/js/views/settings.js"></script>
-<script src="/static/js/views/suggest.js"></script>
+<script src="/static/js/util.js?v=4.7.9"></script>
+<script src="/static/js/i18n.js?v=4.7.9"></script>
+<script src="/static/js/theme.js?v=4.7.9"></script>
+<script src="/static/js/toast.js?v=4.7.9"></script>
+<script src="/static/js/auth.js?v=4.7.9"></script>
+<script src="/static/js/pending.js?v=4.7.9"></script>
+<script src="/static/js/modal.js?v=4.7.9"></script>
+<script src="/static/js/init.js?v=4.7.9"></script>
+<script src="/static/js/shell.js?v=4.7.9"></script>
+<script src="/static/js/views/home.js?v=4.7.9"></script>
+<script src="/static/js/views/files.js?v=4.7.9"></script>
+<script src="/static/js/views/users.js?v=4.7.9"></script>
+<script src="/static/js/views/audit.js?v=4.7.9"></script>
+<script src="/static/js/views/settings.js?v=4.7.9"></script>
+<script src="/static/js/views/suggest.js?v=4.7.9"></script>
+<script src="/static/js/views/org.js?v=4.7.9"></script>
 <script>
     // initApp() establishes the session, then calls onAppReady (= startRouter
     // set by shell.js), which renders the shared header and mounts the view

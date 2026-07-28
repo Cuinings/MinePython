@@ -29,6 +29,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     delete,
     event,
@@ -273,6 +274,52 @@ class RolePermission(Base):
     permission_id: Mapped[int] = mapped_column(ForeignKey("permissions.id"), primary_key=True)
 
 
+class OrgDepartment(Base):
+    """Organization structure — a self-referencing tree of departments (组织架构).
+
+    ``parent_id`` is ``NULL`` for a root department. Deleting a department cascades
+    to its child departments (via ``ondelete="CASCADE"`` on ``parent_id``) and to
+    its ``org_members`` rows (via ``ondelete="CASCADE"`` on ``department_id``).
+    """
+
+    __tablename__ = "org_departments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("org_departments.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    description: Mapped[str] = mapped_column(String, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
+
+
+class OrgMember(Base):
+    """A user assigned to a department, with an optional title/role (成员).
+
+    Links an existing ``users`` row into a department. ``user_id`` is unique:
+    a user belongs to **at most one** department (成员↔部门 一对一归属；部门→成员
+    一对多). Moving a user to another department is done by updating this row
+    (调岗), not by adding a second one. Both FKs cascade-delete: removing a
+    department or a user removes the membership automatically.
+    """
+
+    __tablename__ = "org_members"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_org_member_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    department_id: Mapped[int] = mapped_column(
+        ForeignKey("org_departments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String, nullable=False, default=_now_str)
+
+
 # ---------------------------------------------------------------------------
 # RBAC seed data
 # ---------------------------------------------------------------------------
@@ -283,17 +330,19 @@ PERMISSIONS: dict[str, str] = {
     "file:download": "下载文件",
     "file:delete_self": "删除本人上传的文件",
     "file:delete_any": "删除任意文件",
-    "category:manage": "管理分类（删除分类 / 整理）",
+    "category:manage": "管理分类",
     "user:read": "查看用户列表",
     "user:manage": "创建 / 修改 / 删除用户",
     "user:approve": "审批用户注册",
-    "audit:view": "查看全部审计日志（管理员 / 审核员）",
-    "audit:view_self": "查看本人审计记录（所有登录用户）",
-    "audit:purge": "清空全部审计日志（仅管理员）",
+    "audit:view": "查看全部审计日志",
+    "audit:view_self": "查看本人审计记录",
+    "audit:purge": "清空全部审计日志",
     "file:adb_install": "通过 ADB 把 APK 安装到设备",
-    "suggest:submit": "提交功能需求 / 建议（所有登录用户）",
-    "suggest:view": "查看全部功能建议（管理员 / 审核员）",
-    "suggest:manage": "处理功能建议：改状态 / 删除（管理员）",
+    "suggest:submit": "提交功能需求 / 建议",
+    "suggest:view": "查看全部功能建议",
+    "suggest:manage": "处理功能建议：改状态 / 删除",
+    "org:view": "查看组织架构（部门与成员）",
+    "org:manage": "管理组织架构：增删改部门 / 成员",
 }
 
 # Role -> (description, [permissions]). Seeded on startup; kept in sync.
@@ -303,17 +352,17 @@ ROLES: dict[str, tuple[str, list[str]]] = {
         "审核员：可审批用户、查看审计、管理本人文件",
         ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install",
          "user:read", "user:approve", "audit:view", "audit:view_self",
-         "suggest:submit", "suggest:view"],
+         "suggest:submit", "suggest:view", "org:view"],
     ),
     "uploader": (
         "上传者：可上传 / 下载 / 删除本人文件",
         ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install", "audit:view_self",
-         "suggest:submit"],
+         "suggest:submit", "org:view"],
     ),
     "user": (
         "普通用户：可上传 / 下载 / 删除本人文件",
         ["file:list", "file:upload", "file:download", "file:delete_self", "file:adb_install", "audit:view_self",
-         "suggest:submit"],
+         "suggest:submit", "org:view"],
     ),
     "anonymous": (
         "匿名访客：仅可浏览与下载文件（只读，无需登录）",

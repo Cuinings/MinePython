@@ -8,6 +8,7 @@ set -e
 # Fix ownership here (we are still root), then drop privileges.
 chown appuser:appuser /app/.env 2>/dev/null || true
 chown appuser:appuser /app/.fernet_key 2>/dev/null || true
+chown appuser:appuser /app/.jwt_secret 2>/dev/null || true
 
 # Drop to the non-root user and exec the app (replaces this shell so
 # signals are delivered correctly).

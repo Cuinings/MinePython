@@ -9,7 +9,7 @@ from modules.audit.audit import router as audit_router
 from modules.common import create_app
 from modules.user.config import APP_NAME as SERVICE_NAME
 
-SERVICE_VERSION = "4.6.0"
+from modules.version import VERSION as SERVICE_VERSION
 SERVICE_DESCRIPTION = (
     f"{SERVICE_NAME} 审计模块 —— 提供操作记录与安全审计日志查询接口。"
 )

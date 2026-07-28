@@ -8,5 +8,16 @@ __pycache__/
 *.db-journal
 *.db-wal
 *.db-shm
+# --- Keep sensitive / runtime data OUT of the image layers ---
+# These are bind-mounted from the host via docker-compose, so they must NOT be
+# baked into the image (otherwise secrets + user data leak into every layer).
+/.env
+.fernet_key
+.jwt_secret
+ssl/
+*.db
+logs/
+uploads/
+*.log
 README.md
 .dockerignore

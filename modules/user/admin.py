@@ -211,7 +211,7 @@ async def admin_set_site(
         new_name, persisted = config.set_app_name(body.name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    _audit_log("update_site", admin["username"], new_name, _client_ip(request))
+    _audit_log("update_site", new_name, admin["username"], _client_ip(request))
     return {"ok": True, "name": new_name, "persisted": persisted}
 
 
@@ -243,7 +243,7 @@ async def admin_set_upload_limit(
         new_mb, persisted = config.set_max_upload_size_mb(body.max_upload_size_mb)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    _audit_log("update_upload_limit", admin["username"], f"{new_mb}MB", _client_ip(request))
+    _audit_log("update_upload_limit", f"{new_mb}MB", admin["username"], _client_ip(request))
     return {"ok": True, "max_upload_size_mb": new_mb, "persisted": persisted}
 
 
@@ -301,5 +301,5 @@ async def admin_set_setting(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     new_value = SETTING_TYPES[key]["getter"]()
-    _audit_log("update_setting", admin["username"], f"{key}={new_value}", _client_ip(request))
+    _audit_log("update_setting", f"{key}={new_value}", admin["username"], _client_ip(request))
     return {"ok": True, "key": key, "value": new_value, "persisted": persisted}

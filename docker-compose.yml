@@ -12,6 +12,11 @@ services:
       # Encryption key MUST persist — losing it makes stored plaintext copies
       # unrecoverable. Mounted from the host, never baked into the image.
       - ./.fernet_key:/app/.fernet_key
+      # JWT signing secret — MUST persist across container recreations, otherwise
+      # all existing sessions are invalidated on every rebuild. Mounted from the
+      # host (and chowned to the runtime user by entrypoint.sh). The host file
+      # MUST exist before `docker compose up` (even empty) — see deploy notes.
+      - ./.jwt_secret:/app/.jwt_secret
       # Site-level settings edited from the admin UI (site name, max upload size)
       # are persisted into this .env by the running container. Mounting the host
       # .env keeps those edits across container recreations. NOTE: the host file
